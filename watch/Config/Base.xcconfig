@@ -1,0 +1,14 @@
+// Shared build settings. Personal values live in Local.xcconfig (gitignored);
+// copy Local.xcconfig.example to get started. The include is optional so a
+// fresh clone still builds.
+
+SIDEBAND_DEVELOPMENT_TEAM =
+SIDEBAND_BUNDLE_ID_PREFIX = com.sideband
+SIDEBAND_APP_GROUP = group.$(SIDEBAND_BUNDLE_ID_PREFIX).watch
+SIDEBAND_BACKEND_URL =
+SIDEBAND_WATCH_TOKEN =
+SIDEBAND_AGENT_NAME = Agent
+
+DEVELOPMENT_TEAM = $(SIDEBAND_DEVELOPMENT_TEAM)
+
+#include? "Local.xcconfig"

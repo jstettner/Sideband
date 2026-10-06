@@ -1,0 +1,6 @@
+# Copy to wrangler.toml (gitignored) and fill in account-specific values.
+name = "sideband"
+main = "src/index.ts"
+compatibility_date = "2026-10-01"
+
+# account_id = "<your-cloudflare-account-id>"

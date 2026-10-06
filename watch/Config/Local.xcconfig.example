@@ -1,0 +1,9 @@
+// Copy to Local.xcconfig (gitignored) and fill in.
+
+SIDEBAND_DEVELOPMENT_TEAM = ABCDE12345
+SIDEBAND_BUNDLE_ID_PREFIX = com.yourname.sideband
+
+// xcconfig treats "//" as a comment, so URLs need the $() escape.
+SIDEBAND_BACKEND_URL = https:/$()/sideband.example.workers.dev
+SIDEBAND_WATCH_TOKEN =
+SIDEBAND_AGENT_NAME = Hermes
