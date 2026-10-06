@@ -37,6 +37,13 @@ bun run typecheck
 Editor: install the TypeScript 7 (native) extension. `.vscode/settings.json` points it at the
 workspace TypeScript so Effect diagnostics show up.
 
+Optional, for AI-assisted development: `CLAUDE.md` points agents at a local checkout of the
+Effect v4 source ([effect.solutions setup](https://www.effect.solutions/project-setup#reference-repositories)):
+
+```sh
+git clone --depth 1 https://github.com/Effect-TS/effect.git ~/.local/share/effect-solutions/effect
+```
+
 Local config is never committed. Copy the `*.example` files:
 
 - `backends/cloudflare/wrangler.toml.example`, `.dev.vars.example`
