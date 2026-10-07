@@ -3,7 +3,7 @@ import { Agent, AgentUnavailable, NotSupported, type TurnOutcome } from "./Agent
 import { HermesClient, isSettled, type SettledRun } from "./HermesClient.ts"
 import { watchInstructions } from "./instructions.ts"
 
-/** Only used when the run's event stream is gone (see `waitForRun`). */
+/** For replayed runs and lost event streams (see `waitForRun`). */
 const POLL_INTERVAL = Duration.seconds(1)
 
 /** Events after which the run's status is settled (Hermes updates the status before emitting). */
@@ -24,23 +24,28 @@ export const layer: Layer.Layer<Agent, never, HermesClient> = Layer.effect(
 
     /**
      * Waits for the run to settle. The status (`GET /v1/runs/{id}`) is the source of truth, the
-     * event stream only says when to read it:
+     * event stream only says when to read it.
      *
-     * 1. Read the status: a replayed run may already be settled, and its stream long gone.
-     * 2. Follow the event stream until a settling event or its end, then read the status again.
-     * 3. Still running means the stream was lost: Hermes keeps one stream per run and drops it
-     *    once its reader disconnects, so poll. (A gateway restart doesn't end up here: the run
-     *    becomes `interrupted`, and the status read retries until the gateway is back.)
+     * Hermes buffers a run's events in one in-memory queue from admission on, shared by all
+     * `/events` readers, and only notices a dead reader when it writes to it. A dead reader
+     * swallows the events, end included, and a later reader waits forever. So:
+     *
+     * - A new run: only we know its ID, so follow its stream until a settling event or its end.
+     *   If our connection drops, Hermes deletes the stream; the status read below then polls.
+     * - A replayed run (a re-sent turn, e.g. after a runner restart): an earlier reader may still
+     *   hold its stream, so don't follow it; poll. The run may also have settled long ago.
+     *
+     * A gateway restart fails the run as `interrupted`; the status read retries until it's back.
      */
-    const waitForRun = (runId: string): Effect.Effect<SettledRun, AgentUnavailable> =>
+    const waitForRun = (runId: string, replayed: boolean): Effect.Effect<SettledRun, AgentUnavailable> =>
       Effect.gen(function*() {
-        const initial = yield* hermes.getRun(runId).pipe(unavailable)
-        if (isSettled(initial)) return initial
-        yield* hermes.runEvents(runId).pipe(
-          Stream.takeUntil((event) => SETTLING_EVENTS.has(event)),
-          Stream.runDrain,
-          Effect.catchTag("HermesError", (e) => Effect.logWarning(`run ${runId}: events lost, polling: ${e.message}`))
-        )
+        if (!replayed) {
+          yield* hermes.runEvents(runId).pipe(
+            Stream.takeUntil((event) => SETTLING_EVENTS.has(event)),
+            Stream.runDrain,
+            Effect.catchTag("HermesError", (e) => Effect.logWarning(`run ${runId}: events lost, polling: ${e.message}`))
+          )
+        }
         while (true) {
           const run = yield* hermes.getRun(runId).pipe(unavailable)
           if (isSettled(run)) return run
@@ -59,7 +64,7 @@ export const layer: Layer.Layer<Agent, never, HermesClient> = Layer.effect(
             sessionId: agentSessionId
           }).pipe(unavailable)
           yield* Effect.logInfo(`turn ${key}: hermes run ${runId}${replayed ? " (replayed)" : ""}`)
-          const run = yield* waitForRun(runId)
+          const run = yield* waitForRun(runId, replayed)
           return outcome(run)
         }),
       sessionOp: (op) =>
