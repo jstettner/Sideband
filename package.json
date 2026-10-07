@@ -9,7 +9,9 @@
   ],
   "scripts": {
     "prepare": "effect-tsgo patch --typescript --no-oxlint",
-    "typecheck": "bun run --filter '*' typecheck"
+    "typecheck": "bun run --filter '*' typecheck",
+    "test": "bun run --filter '*' test",
+    "check": "bun run --filter '@sideband/protocol' check"
   },
   "devDependencies": {
     "@effect/tsgo": "0.49.0",

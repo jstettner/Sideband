@@ -7,9 +7,16 @@
     ".": "./src/index.ts"
   },
   "scripts": {
+    "gen": "bun scripts/gen-openapi.ts",
+    "check": "bun scripts/gen-openapi.ts --check",
+    "test": "bun test",
     "typecheck": "tsc -p tsconfig.json"
   },
   "peerDependencies": {
+    "effect": "^4.0.1"
+  },
+  "devDependencies": {
+    "@types/bun": "^1.4.2",
     "effect": "^4.0.1"
   }
 }

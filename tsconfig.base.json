@@ -18,7 +18,8 @@
     "types": [],
     "plugins": [
       {
-        "name": "@effect/language-service"
+        "name": "@effect/language-service",
+        "allowedUnstableApis": ["effect/http-api", "effect/http"]
       }
     ]
   }

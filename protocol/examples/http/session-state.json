@@ -1,0 +1,9 @@
+{
+  "name": "main",
+  "busy": false,
+  "context": {
+    "used_tokens": 4210,
+    "limit_tokens": 200000
+  },
+  "last_activity": "2026-10-06T18:21:30.000Z"
+}

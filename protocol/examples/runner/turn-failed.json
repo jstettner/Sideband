@@ -1,0 +1,6 @@
+{
+  "type": "turn_failed",
+  "key": "4f9c2d7e-8b1a-4c3e-9f2d-6a5b8c7d9e0f",
+  "code": "agent_failed",
+  "message": "Model provider returned 529 overloaded."
+}

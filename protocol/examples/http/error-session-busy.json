@@ -1,0 +1,5 @@
+{
+  "error": "session_busy",
+  "message": "Another turn is still running in this session.",
+  "retryable": true
+}

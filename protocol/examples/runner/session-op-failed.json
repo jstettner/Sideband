@@ -1,0 +1,6 @@
+{
+  "type": "session_op_failed",
+  "op_id": "op_8c1d",
+  "code": "not_supported",
+  "message": "This agent can't compact sessions yet."
+}

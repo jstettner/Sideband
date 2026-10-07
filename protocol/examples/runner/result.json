@@ -1,0 +1,8 @@
+{
+  "type": "result",
+  "key": "4f9c2d7e-8b1a-4c3e-9f2d-6a5b8c7d9e0f",
+  "agent_session_id": "20261006_181200_a1b2c3",
+  "watch_text": "Yes. v1.8.4 is live.\n\nNo errors in the last 10m.",
+  "speak_text": "Yes. Version 1.8.4 is live, with no errors in the last ten minutes.",
+  "full_text": "The production deploy of v1.8.4 finished at 18:12 UTC. Health checks passed and the error rate has been zero for the last 10 minutes."
+}

@@ -1,0 +1,5 @@
+{
+  "error": "agent_offline",
+  "message": "The agent is offline. Nothing was run.",
+  "retryable": true
+}

@@ -1,0 +1,1347 @@
+{
+  "openapi": "3.1.0",
+  "info": {
+    "title": "Sideband",
+    "version": "1",
+    "description": "HTTP contract between a Sideband client (the watch app) and a Sideband backend. See protocol/README.md.",
+    "license": {
+      "name": "MIT"
+    }
+  },
+  "paths": {
+    "/v1/turn": {
+      "post": {
+        "tags": [
+          "turns"
+        ],
+        "operationId": "turns.submit",
+        "parameters": [
+          {
+            "name": "idempotency-key",
+            "in": "header",
+            "schema": {
+              "type": "string",
+              "pattern": "^[A-Za-z0-9_-]{16,128}$",
+              "description": "16-128 characters of [A-Za-z0-9_-]. A UUID is fine."
+            },
+            "required": true
+          },
+          {
+            "name": "session",
+            "in": "query",
+            "schema": {
+              "type": "string",
+              "pattern": "^[a-z0-9][a-z0-9_-]{0,63}$",
+              "description": "Lowercase [a-z0-9_-], 1-64 characters, starting with a letter or digit."
+            },
+            "required": false
+          }
+        ],
+        "security": [
+          {
+            "bearer": []
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Success",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "anyOf": [
+                    {
+                      "type": "object",
+                      "properties": {
+                        "status": {
+                          "type": "string",
+                          "enum": [
+                            "completed"
+                          ]
+                        },
+                        "idempotency_key": {
+                          "type": "string",
+                          "pattern": "^[A-Za-z0-9_-]{16,128}$",
+                          "description": "16-128 characters of [A-Za-z0-9_-]. A UUID is fine."
+                        },
+                        "session": {
+                          "type": "string",
+                          "pattern": "^[a-z0-9][a-z0-9_-]{0,63}$",
+                          "description": "Lowercase [a-z0-9_-], 1-64 characters, starting with a letter or digit."
+                        },
+                        "transcript": {
+                          "type": "string"
+                        },
+                        "transcript_raw": {
+                          "type": "string"
+                        },
+                        "watch_text": {
+                          "type": "string"
+                        },
+                        "speak_text": {
+                          "type": "string"
+                        },
+                        "full_text": {
+                          "type": "string"
+                        },
+                        "context": {
+                          "type": "object",
+                          "properties": {
+                            "used_tokens": {
+                              "type": "integer",
+                              "minimum": 0
+                            },
+                            "limit_tokens": {
+                              "type": "integer",
+                              "minimum": 0
+                            }
+                          },
+                          "required": [
+                            "used_tokens",
+                            "limit_tokens"
+                          ]
+                        }
+                      },
+                      "required": [
+                        "status",
+                        "idempotency_key",
+                        "session",
+                        "watch_text"
+                      ]
+                    },
+                    {
+                      "type": "object",
+                      "properties": {
+                        "status": {
+                          "type": "string",
+                          "enum": [
+                            "needs_approval"
+                          ]
+                        },
+                        "idempotency_key": {
+                          "type": "string",
+                          "pattern": "^[A-Za-z0-9_-]{16,128}$",
+                          "description": "16-128 characters of [A-Za-z0-9_-]. A UUID is fine."
+                        },
+                        "session": {
+                          "type": "string",
+                          "pattern": "^[a-z0-9][a-z0-9_-]{0,63}$",
+                          "description": "Lowercase [a-z0-9_-], 1-64 characters, starting with a letter or digit."
+                        },
+                        "transcript": {
+                          "type": "string"
+                        },
+                        "message": {
+                          "type": "string"
+                        }
+                      },
+                      "required": [
+                        "status",
+                        "idempotency_key",
+                        "session",
+                        "message"
+                      ]
+                    },
+                    {
+                      "type": "object",
+                      "properties": {
+                        "status": {
+                          "type": "string",
+                          "enum": [
+                            "failed"
+                          ]
+                        },
+                        "idempotency_key": {
+                          "type": "string",
+                          "pattern": "^[A-Za-z0-9_-]{16,128}$",
+                          "description": "16-128 characters of [A-Za-z0-9_-]. A UUID is fine."
+                        },
+                        "session": {
+                          "type": "string",
+                          "pattern": "^[a-z0-9][a-z0-9_-]{0,63}$",
+                          "description": "Lowercase [a-z0-9_-], 1-64 characters, starting with a letter or digit."
+                        },
+                        "transcript": {
+                          "type": "string"
+                        },
+                        "code": {
+                          "type": "string",
+                          "enum": [
+                            "agent_failed",
+                            "interrupted"
+                          ]
+                        },
+                        "message": {
+                          "type": "string"
+                        }
+                      },
+                      "required": [
+                        "status",
+                        "idempotency_key",
+                        "session",
+                        "code",
+                        "message"
+                      ]
+                    },
+                    {
+                      "type": "object",
+                      "properties": {
+                        "status": {
+                          "type": "string",
+                          "enum": [
+                            "unknown"
+                          ]
+                        },
+                        "idempotency_key": {
+                          "type": "string",
+                          "pattern": "^[A-Za-z0-9_-]{16,128}$",
+                          "description": "16-128 characters of [A-Za-z0-9_-]. A UUID is fine."
+                        },
+                        "session": {
+                          "type": "string",
+                          "pattern": "^[a-z0-9][a-z0-9_-]{0,63}$",
+                          "description": "Lowercase [a-z0-9_-], 1-64 characters, starting with a letter or digit."
+                        },
+                        "transcript": {
+                          "type": "string"
+                        },
+                        "message": {
+                          "type": "string"
+                        }
+                      },
+                      "required": [
+                        "status",
+                        "idempotency_key",
+                        "session",
+                        "message"
+                      ]
+                    }
+                  ]
+                }
+              }
+            }
+          },
+          "202": {
+            "description": "Success",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "object",
+                  "properties": {
+                    "status": {
+                      "type": "string",
+                      "enum": [
+                        "running"
+                      ]
+                    },
+                    "idempotency_key": {
+                      "type": "string",
+                      "pattern": "^[A-Za-z0-9_-]{16,128}$",
+                      "description": "16-128 characters of [A-Za-z0-9_-]. A UUID is fine."
+                    },
+                    "session": {
+                      "type": "string",
+                      "pattern": "^[a-z0-9][a-z0-9_-]{0,63}$",
+                      "description": "Lowercase [a-z0-9_-], 1-64 characters, starting with a letter or digit."
+                    },
+                    "transcript": {
+                      "type": "string"
+                    },
+                    "retry_after_ms": {
+                      "type": "integer",
+                      "minimum": 0
+                    }
+                  },
+                  "required": [
+                    "status",
+                    "idempotency_key",
+                    "session",
+                    "retry_after_ms"
+                  ]
+                }
+              }
+            }
+          },
+          "400": {
+            "description": "InvalidRequest",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/InvalidRequestEncoded"
+                }
+              }
+            }
+          },
+          "401": {
+            "description": "Unauthorized",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/UnauthorizedEncoded"
+                }
+              }
+            }
+          },
+          "409": {
+            "description": "SessionBusy",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/SessionBusyEncoded"
+                }
+              }
+            }
+          },
+          "413": {
+            "description": "PayloadTooLarge",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/PayloadTooLargeEncoded"
+                }
+              }
+            }
+          },
+          "415": {
+            "description": "UnsupportedMediaType",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/UnsupportedMediaTypeEncoded"
+                }
+              }
+            }
+          },
+          "422": {
+            "description": "IdempotencyConflict",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/IdempotencyConflictEncoded"
+                }
+              }
+            }
+          },
+          "500": {
+            "description": "InternalError",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/InternalErrorEncoded"
+                }
+              }
+            }
+          },
+          "502": {
+            "description": "TranscriptionFailed",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/TranscriptionFailedEncoded"
+                }
+              }
+            }
+          },
+          "503": {
+            "description": "AgentOffline",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/AgentOfflineEncoded"
+                }
+              }
+            }
+          }
+        },
+        "description": "Submit one push-to-talk turn: raw `audio/mp4` (AAC) body, or JSON `{ \"text\": ... }`. `session` defaults to `main`. Retrying with the same `Idempotency-Key` never runs the turn twice: it returns the stored outcome, or `running` while it is still in flight.",
+        "requestBody": {
+          "content": {
+            "audio/mp4": {
+              "schema": {
+                "type": "string",
+                "format": "binary"
+              }
+            },
+            "application/json": {
+              "schema": {
+                "type": "object",
+                "properties": {
+                  "text": {
+                    "type": "string",
+                    "minLength": 1
+                  }
+                },
+                "required": [
+                  "text"
+                ]
+              }
+            }
+          },
+          "required": true
+        }
+      }
+    },
+    "/v1/turns/{idempotency_key}": {
+      "get": {
+        "tags": [
+          "turns"
+        ],
+        "operationId": "turns.get",
+        "parameters": [
+          {
+            "name": "idempotency_key",
+            "in": "path",
+            "schema": {
+              "type": "string",
+              "pattern": "^[A-Za-z0-9_-]{16,128}$",
+              "description": "16-128 characters of [A-Za-z0-9_-]. A UUID is fine."
+            },
+            "required": true
+          }
+        ],
+        "security": [
+          {
+            "bearer": []
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Success",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "anyOf": [
+                    {
+                      "type": "object",
+                      "properties": {
+                        "status": {
+                          "type": "string",
+                          "enum": [
+                            "completed"
+                          ]
+                        },
+                        "idempotency_key": {
+                          "type": "string",
+                          "pattern": "^[A-Za-z0-9_-]{16,128}$",
+                          "description": "16-128 characters of [A-Za-z0-9_-]. A UUID is fine."
+                        },
+                        "session": {
+                          "type": "string",
+                          "pattern": "^[a-z0-9][a-z0-9_-]{0,63}$",
+                          "description": "Lowercase [a-z0-9_-], 1-64 characters, starting with a letter or digit."
+                        },
+                        "transcript": {
+                          "type": "string"
+                        },
+                        "transcript_raw": {
+                          "type": "string"
+                        },
+                        "watch_text": {
+                          "type": "string"
+                        },
+                        "speak_text": {
+                          "type": "string"
+                        },
+                        "full_text": {
+                          "type": "string"
+                        },
+                        "context": {
+                          "type": "object",
+                          "properties": {
+                            "used_tokens": {
+                              "type": "integer",
+                              "minimum": 0
+                            },
+                            "limit_tokens": {
+                              "type": "integer",
+                              "minimum": 0
+                            }
+                          },
+                          "required": [
+                            "used_tokens",
+                            "limit_tokens"
+                          ]
+                        }
+                      },
+                      "required": [
+                        "status",
+                        "idempotency_key",
+                        "session",
+                        "watch_text"
+                      ]
+                    },
+                    {
+                      "type": "object",
+                      "properties": {
+                        "status": {
+                          "type": "string",
+                          "enum": [
+                            "needs_approval"
+                          ]
+                        },
+                        "idempotency_key": {
+                          "type": "string",
+                          "pattern": "^[A-Za-z0-9_-]{16,128}$",
+                          "description": "16-128 characters of [A-Za-z0-9_-]. A UUID is fine."
+                        },
+                        "session": {
+                          "type": "string",
+                          "pattern": "^[a-z0-9][a-z0-9_-]{0,63}$",
+                          "description": "Lowercase [a-z0-9_-], 1-64 characters, starting with a letter or digit."
+                        },
+                        "transcript": {
+                          "type": "string"
+                        },
+                        "message": {
+                          "type": "string"
+                        }
+                      },
+                      "required": [
+                        "status",
+                        "idempotency_key",
+                        "session",
+                        "message"
+                      ]
+                    },
+                    {
+                      "type": "object",
+                      "properties": {
+                        "status": {
+                          "type": "string",
+                          "enum": [
+                            "failed"
+                          ]
+                        },
+                        "idempotency_key": {
+                          "type": "string",
+                          "pattern": "^[A-Za-z0-9_-]{16,128}$",
+                          "description": "16-128 characters of [A-Za-z0-9_-]. A UUID is fine."
+                        },
+                        "session": {
+                          "type": "string",
+                          "pattern": "^[a-z0-9][a-z0-9_-]{0,63}$",
+                          "description": "Lowercase [a-z0-9_-], 1-64 characters, starting with a letter or digit."
+                        },
+                        "transcript": {
+                          "type": "string"
+                        },
+                        "code": {
+                          "type": "string",
+                          "enum": [
+                            "agent_failed",
+                            "interrupted"
+                          ]
+                        },
+                        "message": {
+                          "type": "string"
+                        }
+                      },
+                      "required": [
+                        "status",
+                        "idempotency_key",
+                        "session",
+                        "code",
+                        "message"
+                      ]
+                    },
+                    {
+                      "type": "object",
+                      "properties": {
+                        "status": {
+                          "type": "string",
+                          "enum": [
+                            "unknown"
+                          ]
+                        },
+                        "idempotency_key": {
+                          "type": "string",
+                          "pattern": "^[A-Za-z0-9_-]{16,128}$",
+                          "description": "16-128 characters of [A-Za-z0-9_-]. A UUID is fine."
+                        },
+                        "session": {
+                          "type": "string",
+                          "pattern": "^[a-z0-9][a-z0-9_-]{0,63}$",
+                          "description": "Lowercase [a-z0-9_-], 1-64 characters, starting with a letter or digit."
+                        },
+                        "transcript": {
+                          "type": "string"
+                        },
+                        "message": {
+                          "type": "string"
+                        }
+                      },
+                      "required": [
+                        "status",
+                        "idempotency_key",
+                        "session",
+                        "message"
+                      ]
+                    }
+                  ]
+                }
+              }
+            }
+          },
+          "202": {
+            "description": "Success",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "object",
+                  "properties": {
+                    "status": {
+                      "type": "string",
+                      "enum": [
+                        "running"
+                      ]
+                    },
+                    "idempotency_key": {
+                      "type": "string",
+                      "pattern": "^[A-Za-z0-9_-]{16,128}$",
+                      "description": "16-128 characters of [A-Za-z0-9_-]. A UUID is fine."
+                    },
+                    "session": {
+                      "type": "string",
+                      "pattern": "^[a-z0-9][a-z0-9_-]{0,63}$",
+                      "description": "Lowercase [a-z0-9_-], 1-64 characters, starting with a letter or digit."
+                    },
+                    "transcript": {
+                      "type": "string"
+                    },
+                    "retry_after_ms": {
+                      "type": "integer",
+                      "minimum": 0
+                    }
+                  },
+                  "required": [
+                    "status",
+                    "idempotency_key",
+                    "session",
+                    "retry_after_ms"
+                  ]
+                }
+              }
+            }
+          },
+          "400": {
+            "description": "InvalidRequest",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/InvalidRequestEncoded"
+                }
+              }
+            }
+          },
+          "401": {
+            "description": "Unauthorized",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/UnauthorizedEncoded"
+                }
+              }
+            }
+          },
+          "404": {
+            "description": "NotFound",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/NotFoundEncoded"
+                }
+              }
+            }
+          },
+          "500": {
+            "description": "InternalError",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/InternalErrorEncoded"
+                }
+              }
+            }
+          }
+        },
+        "description": "Fetch the outcome of a turn, typically after a `running` response."
+      }
+    },
+    "/v1/status": {
+      "get": {
+        "tags": [
+          "status"
+        ],
+        "operationId": "status.get",
+        "parameters": [
+          {
+            "name": "session",
+            "in": "query",
+            "schema": {
+              "type": "string",
+              "pattern": "^[a-z0-9][a-z0-9_-]{0,63}$",
+              "description": "Lowercase [a-z0-9_-], 1-64 characters, starting with a letter or digit."
+            },
+            "required": false
+          }
+        ],
+        "security": [
+          {
+            "bearer": []
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Success",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "object",
+                  "properties": {
+                    "agent": {
+                      "type": "object",
+                      "properties": {
+                        "name": {
+                          "type": "string"
+                        },
+                        "online": {
+                          "type": "boolean"
+                        }
+                      },
+                      "required": [
+                        "name",
+                        "online"
+                      ]
+                    },
+                    "session": {
+                      "type": "object",
+                      "properties": {
+                        "name": {
+                          "type": "string",
+                          "pattern": "^[a-z0-9][a-z0-9_-]{0,63}$",
+                          "description": "Lowercase [a-z0-9_-], 1-64 characters, starting with a letter or digit."
+                        },
+                        "busy": {
+                          "type": "boolean"
+                        },
+                        "context": {
+                          "type": "object",
+                          "properties": {
+                            "used_tokens": {
+                              "type": "integer",
+                              "minimum": 0
+                            },
+                            "limit_tokens": {
+                              "type": "integer",
+                              "minimum": 0
+                            }
+                          },
+                          "required": [
+                            "used_tokens",
+                            "limit_tokens"
+                          ]
+                        },
+                        "last_activity": {
+                          "type": "string"
+                        }
+                      },
+                      "required": [
+                        "name",
+                        "busy"
+                      ]
+                    }
+                  },
+                  "required": [
+                    "agent",
+                    "session"
+                  ]
+                }
+              }
+            }
+          },
+          "400": {
+            "description": "InvalidRequest",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/InvalidRequestEncoded"
+                }
+              }
+            }
+          },
+          "401": {
+            "description": "Unauthorized",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/UnauthorizedEncoded"
+                }
+              }
+            }
+          },
+          "500": {
+            "description": "InternalError",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/InternalErrorEncoded"
+                }
+              }
+            }
+          }
+        },
+        "description": "Agent and session state for widgets. Never contacts the agent."
+      }
+    },
+    "/v1/sessions/{session}/new": {
+      "post": {
+        "tags": [
+          "sessions"
+        ],
+        "operationId": "sessions.new",
+        "parameters": [
+          {
+            "name": "session",
+            "in": "path",
+            "schema": {
+              "type": "string",
+              "pattern": "^[a-z0-9][a-z0-9_-]{0,63}$",
+              "description": "Lowercase [a-z0-9_-], 1-64 characters, starting with a letter or digit."
+            },
+            "required": true
+          }
+        ],
+        "security": [
+          {
+            "bearer": []
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Success",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "object",
+                  "properties": {
+                    "name": {
+                      "type": "string",
+                      "pattern": "^[a-z0-9][a-z0-9_-]{0,63}$",
+                      "description": "Lowercase [a-z0-9_-], 1-64 characters, starting with a letter or digit."
+                    },
+                    "busy": {
+                      "type": "boolean"
+                    },
+                    "context": {
+                      "type": "object",
+                      "properties": {
+                        "used_tokens": {
+                          "type": "integer",
+                          "minimum": 0
+                        },
+                        "limit_tokens": {
+                          "type": "integer",
+                          "minimum": 0
+                        }
+                      },
+                      "required": [
+                        "used_tokens",
+                        "limit_tokens"
+                      ]
+                    },
+                    "last_activity": {
+                      "type": "string"
+                    }
+                  },
+                  "required": [
+                    "name",
+                    "busy"
+                  ]
+                }
+              }
+            }
+          },
+          "400": {
+            "description": "InvalidRequest",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/InvalidRequestEncoded"
+                }
+              }
+            }
+          },
+          "401": {
+            "description": "Unauthorized",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/UnauthorizedEncoded"
+                }
+              }
+            }
+          },
+          "409": {
+            "description": "SessionBusy",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/SessionBusyEncoded"
+                }
+              }
+            }
+          },
+          "500": {
+            "description": "InternalError",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/InternalErrorEncoded"
+                }
+              }
+            }
+          },
+          "503": {
+            "description": "AgentOffline",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/AgentOfflineEncoded"
+                }
+              }
+            }
+          }
+        },
+        "description": "Start a fresh agent session behind this session name."
+      }
+    },
+    "/v1/sessions/{session}/compact": {
+      "post": {
+        "tags": [
+          "sessions"
+        ],
+        "operationId": "sessions.compact",
+        "parameters": [
+          {
+            "name": "session",
+            "in": "path",
+            "schema": {
+              "type": "string",
+              "pattern": "^[a-z0-9][a-z0-9_-]{0,63}$",
+              "description": "Lowercase [a-z0-9_-], 1-64 characters, starting with a letter or digit."
+            },
+            "required": true
+          }
+        ],
+        "security": [
+          {
+            "bearer": []
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Success",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "object",
+                  "properties": {
+                    "name": {
+                      "type": "string",
+                      "pattern": "^[a-z0-9][a-z0-9_-]{0,63}$",
+                      "description": "Lowercase [a-z0-9_-], 1-64 characters, starting with a letter or digit."
+                    },
+                    "busy": {
+                      "type": "boolean"
+                    },
+                    "context": {
+                      "type": "object",
+                      "properties": {
+                        "used_tokens": {
+                          "type": "integer",
+                          "minimum": 0
+                        },
+                        "limit_tokens": {
+                          "type": "integer",
+                          "minimum": 0
+                        }
+                      },
+                      "required": [
+                        "used_tokens",
+                        "limit_tokens"
+                      ]
+                    },
+                    "last_activity": {
+                      "type": "string"
+                    }
+                  },
+                  "required": [
+                    "name",
+                    "busy"
+                  ]
+                }
+              }
+            }
+          },
+          "400": {
+            "description": "InvalidRequest",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/InvalidRequestEncoded"
+                }
+              }
+            }
+          },
+          "401": {
+            "description": "Unauthorized",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/UnauthorizedEncoded"
+                }
+              }
+            }
+          },
+          "409": {
+            "description": "SessionBusy",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/SessionBusyEncoded"
+                }
+              }
+            }
+          },
+          "500": {
+            "description": "InternalError",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/InternalErrorEncoded"
+                }
+              }
+            }
+          },
+          "501": {
+            "description": "NotSupported",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/NotSupportedEncoded"
+                }
+              }
+            }
+          },
+          "503": {
+            "description": "AgentOffline",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/AgentOfflineEncoded"
+                }
+              }
+            }
+          }
+        },
+        "description": "Compact the agent session's context."
+      }
+    }
+  },
+  "components": {
+    "schemas": {
+      "UnauthorizedEncoded": {
+        "type": "object",
+        "properties": {
+          "error": {
+            "type": "string",
+            "enum": [
+              "unauthorized"
+            ]
+          },
+          "message": {
+            "type": "string"
+          },
+          "retryable": {
+            "type": "boolean",
+            "enum": [
+              false
+            ]
+          }
+        },
+        "required": [
+          "error",
+          "message",
+          "retryable"
+        ]
+      },
+      "NotSupportedEncoded": {
+        "type": "object",
+        "properties": {
+          "error": {
+            "type": "string",
+            "enum": [
+              "not_supported"
+            ]
+          },
+          "message": {
+            "type": "string"
+          },
+          "retryable": {
+            "type": "boolean",
+            "enum": [
+              false
+            ]
+          }
+        },
+        "required": [
+          "error",
+          "message",
+          "retryable"
+        ]
+      },
+      "AgentOfflineEncoded": {
+        "type": "object",
+        "properties": {
+          "error": {
+            "type": "string",
+            "enum": [
+              "agent_offline"
+            ]
+          },
+          "message": {
+            "type": "string"
+          },
+          "retryable": {
+            "type": "boolean",
+            "enum": [
+              true
+            ]
+          }
+        },
+        "required": [
+          "error",
+          "message",
+          "retryable"
+        ]
+      },
+      "SessionBusyEncoded": {
+        "type": "object",
+        "properties": {
+          "error": {
+            "type": "string",
+            "enum": [
+              "session_busy"
+            ]
+          },
+          "message": {
+            "type": "string"
+          },
+          "retryable": {
+            "type": "boolean",
+            "enum": [
+              true
+            ]
+          }
+        },
+        "required": [
+          "error",
+          "message",
+          "retryable"
+        ]
+      },
+      "InternalErrorEncoded": {
+        "type": "object",
+        "properties": {
+          "error": {
+            "type": "string",
+            "enum": [
+              "internal_error"
+            ]
+          },
+          "message": {
+            "type": "string"
+          },
+          "retryable": {
+            "type": "boolean",
+            "enum": [
+              true
+            ]
+          }
+        },
+        "required": [
+          "error",
+          "message",
+          "retryable"
+        ]
+      },
+      "InvalidRequestEncoded": {
+        "type": "object",
+        "properties": {
+          "error": {
+            "type": "string",
+            "enum": [
+              "invalid_request"
+            ]
+          },
+          "message": {
+            "type": "string"
+          },
+          "retryable": {
+            "type": "boolean",
+            "enum": [
+              false
+            ]
+          }
+        },
+        "required": [
+          "error",
+          "message",
+          "retryable"
+        ]
+      },
+      "NotFoundEncoded": {
+        "type": "object",
+        "properties": {
+          "error": {
+            "type": "string",
+            "enum": [
+              "not_found"
+            ]
+          },
+          "message": {
+            "type": "string"
+          },
+          "retryable": {
+            "type": "boolean",
+            "enum": [
+              false
+            ]
+          }
+        },
+        "required": [
+          "error",
+          "message",
+          "retryable"
+        ]
+      },
+      "TranscriptionFailedEncoded": {
+        "type": "object",
+        "properties": {
+          "error": {
+            "type": "string",
+            "enum": [
+              "transcription_failed"
+            ]
+          },
+          "message": {
+            "type": "string"
+          },
+          "retryable": {
+            "type": "boolean",
+            "enum": [
+              true
+            ]
+          }
+        },
+        "required": [
+          "error",
+          "message",
+          "retryable"
+        ]
+      },
+      "IdempotencyConflictEncoded": {
+        "type": "object",
+        "properties": {
+          "error": {
+            "type": "string",
+            "enum": [
+              "idempotency_conflict"
+            ]
+          },
+          "message": {
+            "type": "string"
+          },
+          "retryable": {
+            "type": "boolean",
+            "enum": [
+              false
+            ]
+          }
+        },
+        "required": [
+          "error",
+          "message",
+          "retryable"
+        ]
+      },
+      "UnsupportedMediaTypeEncoded": {
+        "type": "object",
+        "properties": {
+          "error": {
+            "type": "string",
+            "enum": [
+              "unsupported_media_type"
+            ]
+          },
+          "message": {
+            "type": "string"
+          },
+          "retryable": {
+            "type": "boolean",
+            "enum": [
+              false
+            ]
+          }
+        },
+        "required": [
+          "error",
+          "message",
+          "retryable"
+        ]
+      },
+      "PayloadTooLargeEncoded": {
+        "type": "object",
+        "properties": {
+          "error": {
+            "type": "string",
+            "enum": [
+              "payload_too_large"
+            ]
+          },
+          "message": {
+            "type": "string"
+          },
+          "retryable": {
+            "type": "boolean",
+            "enum": [
+              false
+            ]
+          }
+        },
+        "required": [
+          "error",
+          "message",
+          "retryable"
+        ]
+      }
+    },
+    "securitySchemes": {
+      "bearer": {
+        "type": "http",
+        "scheme": "Bearer"
+      }
+    }
+  },
+  "security": [],
+  "tags": [
+    {
+      "name": "turns"
+    },
+    {
+      "name": "status"
+    },
+    {
+      "name": "sessions"
+    }
+  ]
+}
