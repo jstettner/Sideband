@@ -5,5 +5,6 @@ import WidgetKit
 struct SidebandWidgets: WidgetBundle {
     var body: some Widget {
         AskControl()
+        AskComplication()
     }
 }

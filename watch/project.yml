@@ -37,6 +37,10 @@ targets:
         WKApplication: true
         WKWatchOnly: true
         NSMicrophoneUsageDescription: Sideband records your voice to send to your agent.
+        # `sideband://ask` (AskURL), opened by the watch face complication.
+        CFBundleURLTypes:
+          - CFBundleURLName: $(PRODUCT_BUNDLE_IDENTIFIER)
+            CFBundleURLSchemes: [sideband]
         SidebandBackendURL: $(SIDEBAND_BACKEND_URL)
         SidebandWatchToken: $(SIDEBAND_WATCH_TOKEN)
         NSAppTransportSecurity:

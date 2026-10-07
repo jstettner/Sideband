@@ -9,6 +9,9 @@ struct SidebandApp: App {
             RootView()
                 .environment(turn)
                 .environment(LaunchRouter.shared)
+                .onOpenURL { url in
+                    if url == AskURL.url { LaunchRouter.shared.requestRecording() }
+                }
         }
     }
 }
