@@ -1,0 +1,18 @@
+name = "sideband"
+main = "src/index.ts"
+compatibility_date = "2026-10-01"
+
+# Account: CLOUDFLARE_ACCOUNT_ID in .env (gitignored), or pick one when wrangler asks.
+
+# Stored Workers Logs (dashboard → Workers → sideband → Logs).
+[observability]
+enabled = true
+
+# The relay: one instance per user, holding the runner's WebSocket and turn/session state.
+[[durable_objects.bindings]]
+name = "RELAY"
+class_name = "Relay"
+
+[[migrations]]
+tag = "v1"
+new_sqlite_classes = ["Relay"]

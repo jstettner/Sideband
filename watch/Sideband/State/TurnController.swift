@@ -110,19 +110,30 @@ final class TurnController {
             case "completed":
                 phase = .response(transcript: turn.transcript, text: turn.watch_text ?? "")
                 WKInterfaceDevice.current().play(.success)
+            case "needs_approval":
+                // Approvals can't be given from the watch yet.
+                fail("needs approval on another device", retryable: false)
             default:
-                // needs_approval / failed / unknown are final outcomes: retrying returns them again.
+                // failed / unknown are final outcomes: retrying returns them again.
                 fail(turn.message ?? "turn \(turn.status)", retryable: false)
             }
         } catch {
-            fail(error.message, retryable: error.retryable)
+            fail(Self.describe(error), retryable: error.retryable)
+        }
+    }
+
+    private static func describe(_ failure: SidebandClient.Failure) -> String {
+        switch failure.error {
+        case "agent_offline": "agent offline. nothing was run"
+        case "session_busy": "still working on the last one"
+        default: failure.message
         }
     }
 
     /// A dropped connection or timeout gets one automatic retry under the same
-    /// key. Errors from the backend are not retried. The backend doesn't store
-    /// turns yet: until the relay exists (Milestone 3), the only dedup is the
-    /// transcription provider's own idempotency on this key.
+    /// key. Errors from the backend are not retried. The backend dedups on the
+    /// key, so a retry returns the original turn's outcome instead of running
+    /// it again.
     private func submitRetryingOnce(
         _ client: SidebandClient, clip: Recorder.Clip, key: String
     ) async throws(SidebandClient.Failure) -> SidebandClient.Turn {

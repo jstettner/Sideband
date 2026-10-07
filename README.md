@@ -46,7 +46,7 @@ git clone --depth 1 https://github.com/Effect-TS/effect.git ~/.local/share/effec
 
 Local config is never committed. Copy the `*.example` files:
 
-- `backends/cloudflare/wrangler.toml.example`, `.dev.vars.example`
+- `backends/cloudflare/.env.example` (Cloudflare account), `.dev.vars.example`
 - `runner/.env.example`, `runner/launchd/com.sideband.runner.plist.example`
 - `watch/Config/Local.xcconfig.example`
 

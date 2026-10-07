@@ -1,7 +1,6 @@
 import {
-  DEFAULT_SESSION,
+  InvalidRequest,
   MAX_AUDIO_BYTES,
-  NotFound,
   PayloadTooLarge,
   SidebandApi,
   TranscriptionFailed,
@@ -10,19 +9,34 @@ import {
 import { Effect } from "effect"
 import { HttpApiBuilder } from "effect/http-api"
 import { canonicalWav, InvalidWav } from "../audio/wav.ts"
+import { RelayClient } from "../relay/RelayClient.ts"
 import { Transcription } from "../transcription/Transcription.ts"
 
 /**
- * Milestone 2: transcribe and answer with the transcript itself. No relay or runner yet, so
- * nothing is stored and `get` never finds a turn.
+ * SHA-256 of the request body. The relay stores it with the key, so a retry with the same key
+ * but a different body is refused (`idempotency_conflict`) rather than answered with another
+ * command's result.
+ */
+const payloadHash = (payload: Uint8Array | { readonly text: string }) =>
+  Effect.promise(async () => {
+    const bytes = "text" in payload ? new TextEncoder().encode(`text:${payload.text}`) : payload
+    const digest = await crypto.subtle.digest("SHA-256", bytes)
+    return [...new Uint8Array(digest)].map((b) => b.toString(16).padStart(2, "0")).join("")
+  })
+
+/**
+ * Transcribes (unless the client sent text), then hands the turn to the relay. Transcription
+ * comes before the relay's idempotency claim: it has no side effects, so a retry costs at most
+ * one more provider call.
  */
 export const layer = HttpApiBuilder.group(SidebandApi, "turns", Effect.fnUntraced(function*(handlers) {
   const transcription = yield* Transcription
+  const relay = yield* RelayClient
   return handlers
     .handle("submit", ({ payload, query, headers }) =>
       Effect.gen(function*() {
         const key = headers["idempotency-key"]
-        const session = query.session ?? DEFAULT_SESSION
+        const session = query.session
 
         let transcript: string
         let transcriptRaw: string | undefined
@@ -59,23 +73,23 @@ export const layer = HttpApiBuilder.group(SidebandApi, "turns", Effect.fnUntrace
           transcript = payload.text
         }
 
-        return {
-          status: "completed" as const,
-          idempotency_key: key,
+        // Silence or noise: nothing to send, so no turn is created.
+        if (transcript.trim() === "") {
+          return yield* new InvalidRequest({
+            error: "invalid_request",
+            message: "no speech detected",
+            retryable: false
+          })
+        }
+
+        return yield* relay.submit({
+          key,
           session,
           transcript,
-          ...(transcriptRaw !== undefined ? { transcript_raw: transcriptRaw } : {}),
-          watch_text: transcript
-        }
+          transcriptRaw,
+          payloadHash: yield* payloadHash(payload)
+        })
       })
     )
-    .handle("get", ({ params }) =>
-      Effect.fail(
-        new NotFound({
-          error: "not_found",
-          message: `no turn ${params.idempotency_key}`,
-          retryable: false
-        })
-      )
-    )
+    .handle("get", ({ params }) => relay.get(params.idempotency_key))
 }))

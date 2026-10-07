@@ -14,7 +14,8 @@ export type SessionState = typeof SessionState.Type
 
 export const Status = Schema.Struct({
   agent: Schema.Struct({
-    ...AgentInfo.fields,
+    /** Display name from the last runner that connected. Absent if none ever has. */
+    name: Schema.optionalKey(AgentInfo.fields.name),
     /** A runner is connected right now. */
     online: Schema.Boolean
   }),

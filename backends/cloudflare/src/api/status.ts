@@ -1,21 +1,18 @@
-import { AgentOffline, DEFAULT_SESSION, NotSupported, SidebandApi } from "@sideband/protocol"
+import { SidebandApi } from "@sideband/protocol"
 import { Effect, Layer } from "effect"
 import { HttpApiBuilder } from "effect/http-api"
+import { RelayClient } from "../relay/RelayClient.ts"
 
-// Placeholders until the relay tracks runners and sessions (Milestone 3).
+const status = HttpApiBuilder.group(SidebandApi, "status", Effect.fnUntraced(function*(handlers) {
+  const relay = yield* RelayClient
+  return handlers.handle("get", ({ query }) => relay.status(query.session))
+}))
 
-const status = HttpApiBuilder.group(SidebandApi, "status", (handlers) =>
-  handlers.handle("get", ({ query }) =>
-    Effect.succeed({
-      agent: { name: "agent", online: false },
-      session: { name: query.session ?? DEFAULT_SESSION, busy: false }
-    })))
-
-const sessions = HttpApiBuilder.group(SidebandApi, "sessions", (handlers) =>
-  handlers
-    .handle("new", () =>
-      Effect.fail(new AgentOffline({ error: "agent_offline", message: "no runner connected", retryable: true })))
-    .handle("compact", () =>
-      Effect.fail(new NotSupported({ error: "not_supported", message: "not implemented yet", retryable: false }))))
+const sessions = HttpApiBuilder.group(SidebandApi, "sessions", Effect.fnUntraced(function*(handlers) {
+  const relay = yield* RelayClient
+  return handlers
+    .handle("new", ({ params }) => relay.sessionOp(params.session, "new"))
+    .handle("compact", ({ params }) => relay.sessionOp(params.session, "compact"))
+}))
 
 export const layer = Layer.mergeAll(status, sessions)

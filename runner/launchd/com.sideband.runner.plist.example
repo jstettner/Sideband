@@ -12,8 +12,12 @@
   <string>/ABSOLUTE/PATH/TO/sideband/runner</string>
   <key>RunAtLoad</key>
   <true/>
+  <!-- Restart after crashes, but not after a clean exit (another runner replaced this one). -->
   <key>KeepAlive</key>
-  <true/>
+  <dict>
+    <key>SuccessfulExit</key>
+    <false/>
+  </dict>
   <key>StandardOutPath</key>
   <string>/tmp/com.sideband.runner.log</string>
   <key>StandardErrorPath</key>

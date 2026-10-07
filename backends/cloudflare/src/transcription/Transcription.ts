@@ -21,4 +21,4 @@ export class Transcription extends Context.Service<Transcription, {
     audio: Uint8Array,
     idempotencyKey: string
   ) => Effect.Effect<Transcript, TranscriptionError>
-}>()("sideband/Transcription") {}
+}>()("sideband/backend-cloudflare/transcription/Transcription") {}

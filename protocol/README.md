@@ -29,14 +29,14 @@ POST /v1/sessions/{session}/compact        compact the agent session
 
 ```sh
 # audio: the raw recording is the body
-curl -X POST "$BACKEND/v1/turn" \
+curl -X POST "$BACKEND/v1/turn?session=main" \
   -H "Authorization: Bearer $TOKEN" \
   -H "Idempotency-Key: $(uuidgen)" \
   -H "Content-Type: audio/wav" \
   --data-binary @command.wav
 
 # text: the client already transcribed
-curl -X POST "$BACKEND/v1/turn" \
+curl -X POST "$BACKEND/v1/turn?session=main" \
   -H "Authorization: Bearer $TOKEN" \
   -H "Idempotency-Key: $(uuidgen)" \
   -H "Content-Type: application/json" \
@@ -46,8 +46,8 @@ curl -X POST "$BACKEND/v1/turn" \
 - Audio: `audio/wav`, 16 kHz mono 16-bit PCM, is required; a backend may accept more formats
   and replies `415 unsupported_media_type` otherwise. Extra RIFF chunks (as Apple's recorders
   write) are fine. Max 4 MB (~2 minutes), else `413 payload_too_large`.
-- `session` is a stable name you choose (default `main`). The agent's own session IDs change
-  over time (new session, compaction) and are never exposed.
+- `session` (required) is a stable name you choose, e.g. `main`. The agent's own session IDs
+  change over time (new session, compaction) and are never exposed.
 
 ### Turn outcomes
 

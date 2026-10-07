@@ -4,7 +4,7 @@ import { Effect, Layer, Redacted } from "effect"
 const encoder = new TextEncoder()
 
 /** Compares in time independent of where the strings first differ. */
-function constantTimeEqual(a: string, b: string): boolean {
+export function constantTimeEqual(a: string, b: string): boolean {
   const x = encoder.encode(a)
   const y = encoder.encode(b)
   let diff = x.length ^ y.length

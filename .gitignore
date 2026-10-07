@@ -14,8 +14,6 @@ coverage/
 .dev.vars
 .dev.vars.*
 !.dev.vars.example
-wrangler.toml
-!wrangler.toml.example
 watch/Config/Local.xcconfig
 
 # Cloudflare

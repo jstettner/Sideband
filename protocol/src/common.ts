@@ -22,8 +22,6 @@ export const SessionName = Schema.String.check(
 })
 export type SessionName = typeof SessionName.Type
 
-export const DEFAULT_SESSION: SessionName = "main"
-
 const TokenCount = Schema.Int.check(Schema.isGreaterThanOrEqualTo(0))
 
 /** Context-window occupancy of the agent session, as reported by the agent. */

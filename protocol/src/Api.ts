@@ -37,7 +37,7 @@ export class Authorization extends HttpApiMiddleware.Service<Authorization, {
   security: { bearer: HttpApiSecurity.bearer }
 }) {}
 
-const SessionQuery = { session: Schema.optionalKey(SessionName) }
+const SessionQuery = { session: SessionName }
 const SessionParams = { session: SessionName }
 
 /** Errors any authenticated endpoint can return. */
@@ -61,7 +61,7 @@ export class TurnsGroup extends HttpApiGroup.make("turns")
       ]
     }).annotate(OpenApi.Description, [
       "Submit one push-to-talk turn: raw `audio/wav` (16 kHz mono PCM16) body, or JSON `{ \"text\": ... }`.",
-      "`session` defaults to `main`. Retrying with the same `Idempotency-Key` never runs the",
+      "`session` names the conversation (e.g. `main`). Retrying with the same `Idempotency-Key` never runs the",
       "turn twice: it returns the stored outcome, or `running` while it is still in flight."
     ].join(" "))
   )
@@ -91,7 +91,7 @@ export class SessionsGroup extends HttpApiGroup.make("sessions")
     HttpApiEndpoint.post("new", "/v1/sessions/:session/new", {
       params: SessionParams,
       success: SessionState,
-      error: [...CommonErrors, SessionBusy, AgentOffline]
+      error: [...CommonErrors, SessionBusy, AgentOffline, NotSupported]
     }).annotate(OpenApi.Description, "Start a fresh agent session behind this session name.")
   )
   .add(
