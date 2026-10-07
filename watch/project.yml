@@ -1,0 +1,72 @@
+# Generates Sideband.xcodeproj (gitignored). Run `xcodegen` in this directory.
+name: Sideband
+
+options:
+  bundleIdPrefix: com.sideband
+  deploymentTarget:
+    watchOS: "26.0"
+  createIntermediateGroups: true
+
+configFiles:
+  Debug: Config/Base.xcconfig
+  Release: Config/Base.xcconfig
+
+settings:
+  base:
+    SWIFT_VERSION: "6.0"
+    CODE_SIGN_STYLE: Automatic
+    MARKETING_VERSION: "0.1.0"
+    CURRENT_PROJECT_VERSION: "1"
+
+targets:
+  Sideband:
+    type: application
+    platform: watchOS
+    sources:
+      - Sideband
+      - Shared
+    settings:
+      base:
+        PRODUCT_BUNDLE_IDENTIFIER: $(SIDEBAND_BUNDLE_ID_PREFIX)
+        PRODUCT_NAME: Sideband
+        GENERATE_INFOPLIST_FILE: YES
+    info:
+      path: Sideband/Info.plist
+      properties:
+        CFBundleDisplayName: Sideband
+        WKApplication: true
+        WKWatchOnly: true
+        NSMicrophoneUsageDescription: Sideband records your voice to send to your agent.
+        UIAppFonts:
+          - Iosevka-Regular.ttf
+    dependencies:
+      - target: SidebandWidgets
+
+  SidebandWidgets:
+    type: app-extension
+    platform: watchOS
+    sources:
+      - SidebandWidgets
+      - Shared
+    settings:
+      base:
+        PRODUCT_BUNDLE_IDENTIFIER: $(SIDEBAND_BUNDLE_ID_PREFIX).widgets
+        PRODUCT_NAME: SidebandWidgets
+        SWIFT_ACTIVE_COMPILATION_CONDITIONS: $(inherited) WIDGET_EXTENSION
+        GENERATE_INFOPLIST_FILE: YES
+    info:
+      path: SidebandWidgets/Info.plist
+      properties:
+        CFBundleDisplayName: Sideband
+        NSExtension:
+          NSExtensionPointIdentifier: com.apple.widgetkit-extension
+
+schemes:
+  Sideband:
+    build:
+      targets:
+        Sideband: all
+        SidebandWidgets: all
+    run:
+      config: Debug
+      executable: Sideband
