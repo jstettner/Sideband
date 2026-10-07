@@ -9,6 +9,8 @@ struct AskComplication: Widget {
         StaticConfiguration(kind: "sideband.face", provider: Provider()) { _ in
             DroidView()
                 .widgetURL(AskURL.url)
+                // Required since watchOS 10, or the system shows an error in place of the widget.
+                .containerBackground(for: .widget) { Color.clear }
         }
         .configurationDisplayName("Ask Sideband")
         .description("Start recording a question.")
