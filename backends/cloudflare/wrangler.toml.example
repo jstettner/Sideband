@@ -4,3 +4,7 @@ main = "src/index.ts"
 compatibility_date = "2026-10-01"
 
 # account_id = "<your-cloudflare-account-id>"
+
+# Stored Workers Logs (dashboard → Workers → sideband → Logs).
+[observability]
+enabled = true

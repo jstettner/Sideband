@@ -103,7 +103,7 @@ final class TurnController {
         }
         phase = .sending
         do {
-            let turn = try await client.submit(audio: clip.url, key: key)
+            let turn = try await submitRetryingOnce(client, clip: clip, key: key)
             pending = nil
             try? FileManager.default.removeItem(at: clip.url)
             switch turn.status {
@@ -116,6 +116,20 @@ final class TurnController {
             }
         } catch {
             fail(error.message, retryable: error.retryable)
+        }
+    }
+
+    /// A dropped connection or timeout gets one automatic retry under the same
+    /// key. Errors from the backend are not retried. The backend doesn't store
+    /// turns yet: until the relay exists (Milestone 3), the only dedup is the
+    /// transcription provider's own idempotency on this key.
+    private func submitRetryingOnce(
+        _ client: SidebandClient, clip: Recorder.Clip, key: String
+    ) async throws(SidebandClient.Failure) -> SidebandClient.Turn {
+        do {
+            return try await client.submit(audio: clip.url, key: key)
+        } catch where error.error == "transport" {
+            return try await client.submit(audio: clip.url, key: key)
         }
     }
 
