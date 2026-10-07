@@ -20,8 +20,17 @@
 	<string>1.0</string>
 	<key>CFBundleVersion</key>
 	<string>1</string>
+	<key>NSAppTransportSecurity</key>
+	<dict>
+		<key>NSAllowsLocalNetworking</key>
+		<true/>
+	</dict>
 	<key>NSMicrophoneUsageDescription</key>
 	<string>Sideband records your voice to send to your agent.</string>
+	<key>SidebandBackendURL</key>
+	<string>$(SIDEBAND_BACKEND_URL)</string>
+	<key>SidebandWatchToken</key>
+	<string>$(SIDEBAND_WATCH_TOKEN)</string>
 	<key>UIAppFonts</key>
 	<array>
 		<string>Iosevka-Regular.ttf</string>

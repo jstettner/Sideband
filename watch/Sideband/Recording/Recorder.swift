@@ -1,7 +1,7 @@
 import AVFoundation
 
 /// Thin wrapper around `AVAudioRecorder` producing the format the protocol
-/// requires: AAC in M4A, mono, 16 kHz, ~32 kbps.
+/// requires: WAV, 16 kHz mono 16-bit PCM.
 @MainActor
 final class Recorder {
     enum Failure: Error {
@@ -16,18 +16,20 @@ final class Recorder {
     }
 
     private static let settings: [String: Any] = [
-        AVFormatIDKey: kAudioFormatMPEG4AAC,
+        AVFormatIDKey: kAudioFormatLinearPCM,
         AVSampleRateKey: 16_000,
         AVNumberOfChannelsKey: 1,
-        AVEncoderBitRateKey: 32_000,
+        AVLinearPCMBitDepthKey: 16,
+        AVLinearPCMIsFloatKey: false,
+        AVLinearPCMIsBigEndianKey: false,
     ]
 
     private let workingURL = FileManager.default.temporaryDirectory
-        .appendingPathComponent("recording.m4a")
+        .appendingPathComponent("recording.wav")
 
-    /// The most recent finished clip. Kept only so it can be pulled off the
-    /// watch for testing; overwritten by the next recording.
-    private let lastURL = URL.documentsDirectory.appendingPathComponent("last.m4a")
+    /// The finished clip, kept until the backend has it so a retry can resend
+    /// it. Overwritten by the next recording.
+    private let clipURL = URL.documentsDirectory.appendingPathComponent("turn.wav")
 
     private var recorder: AVAudioRecorder?
 
@@ -77,10 +79,10 @@ final class Recorder {
         deactivateSession()
 
         do {
-            try? FileManager.default.removeItem(at: lastURL)
-            try FileManager.default.moveItem(at: workingURL, to: lastURL)
-            let bytes = try lastURL.resourceValues(forKeys: [.fileSizeKey]).fileSize ?? 0
-            return Clip(url: lastURL, duration: duration, bytes: bytes)
+            try? FileManager.default.removeItem(at: clipURL)
+            try FileManager.default.moveItem(at: workingURL, to: clipURL)
+            let bytes = try clipURL.resourceValues(forKeys: [.fileSizeKey]).fileSize ?? 0
+            return Clip(url: clipURL, duration: duration, bytes: bytes)
         } catch {
             return nil
         }

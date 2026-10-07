@@ -37,6 +37,11 @@ targets:
         WKApplication: true
         WKWatchOnly: true
         NSMicrophoneUsageDescription: Sideband records your voice to send to your agent.
+        SidebandBackendURL: $(SIDEBAND_BACKEND_URL)
+        SidebandWatchToken: $(SIDEBAND_WATCH_TOKEN)
+        NSAppTransportSecurity:
+          # Plain HTTP to `wrangler dev` on the LAN while developing.
+          NSAllowsLocalNetworking: true
         UIAppFonts:
           - Iosevka-Regular.ttf
     dependencies:

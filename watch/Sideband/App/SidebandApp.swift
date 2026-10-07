@@ -2,12 +2,12 @@ import SwiftUI
 
 @main
 struct SidebandApp: App {
-    @State private var model = RecordingModel()
+    @State private var turn = TurnController()
 
     var body: some Scene {
         WindowGroup {
             RootView()
-                .environment(model)
+                .environment(turn)
                 .environment(LaunchRouter.shared)
         }
     }

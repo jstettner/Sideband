@@ -2,15 +2,16 @@ import { Schema } from "effect"
 import { HttpApiSchema } from "effect/http-api"
 import { ContextUsage, IdempotencyKey, SessionName } from "./common.ts"
 
-/** Maximum accepted audio upload. ~4 minutes of 32 kbps AAC. */
-export const MAX_AUDIO_BYTES = 1_000_000
+/** Maximum accepted audio upload. ~2 minutes of 16 kHz mono PCM16. */
+export const MAX_AUDIO_BYTES = 4_000_000
 
 /**
- * Audio turn: the raw recording is the request body. AAC in MP4/M4A (`audio/mp4`) is the
- * required format; backends may accept more and reply `unsupported_media_type` otherwise.
+ * Audio turn: the raw recording is the request body. 16 kHz mono 16-bit PCM WAV
+ * (`audio/wav`) is the required format; backends may accept more and reply
+ * `unsupported_media_type` otherwise. Extra RIFF chunks are allowed.
  */
 export const AudioTurnBody = Schema.Uint8Array.pipe(
-  HttpApiSchema.asUint8Array({ contentType: "audio/mp4" })
+  HttpApiSchema.asUint8Array({ contentType: "audio/wav" })
 )
 
 /** Text turn: the client already transcribed (e.g. on-device speech recognition). */

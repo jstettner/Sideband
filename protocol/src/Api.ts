@@ -60,7 +60,7 @@ export class TurnsGroup extends HttpApiGroup.make("turns")
         AgentOffline
       ]
     }).annotate(OpenApi.Description, [
-      "Submit one push-to-talk turn: raw `audio/mp4` (AAC) body, or JSON `{ \"text\": ... }`.",
+      "Submit one push-to-talk turn: raw `audio/wav` (16 kHz mono PCM16) body, or JSON `{ \"text\": ... }`.",
       "`session` defaults to `main`. Retrying with the same `Idempotency-Key` never runs the",
       "turn twice: it returns the stored outcome, or `running` while it is still in flight."
     ].join(" "))
