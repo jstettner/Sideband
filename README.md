@@ -1,5 +1,7 @@
 # Sideband
 
+[![CI](https://github.com/jstettner/Sideband/actions/workflows/ci.yml/badge.svg)](https://github.com/jstettner/Sideband/actions/workflows/ci.yml)
+
 Push-to-talk for your AI agent, from an Apple Watch.
 
 Press, speak, lower your wrist, feel the haptic, then read a short answer. Sideband is
