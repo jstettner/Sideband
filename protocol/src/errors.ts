@@ -28,7 +28,10 @@ export class NotFound extends Schema.Error<NotFound>("NotFound")({
   retryable: Schema.Literal(false)
 }, { httpApiStatus: 404 }) {}
 
-/** Another turn is in flight for this session. Nothing was executed. */
+/**
+ * Another turn or session operation is in flight for this session and the backend can't steer
+ * into it. Nothing was executed.
+ */
 export class SessionBusy extends Schema.Error<SessionBusy>("SessionBusy")({
   error: Schema.Literal("session_busy"),
   message: Schema.String,

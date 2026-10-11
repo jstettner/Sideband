@@ -34,6 +34,8 @@ runner → relay   ack                 key
 runner → relay   result              key, agent_session_id, watch_text, speak_text?, full_text?, context?
 runner → relay   needs_approval      key, agent_session_id, message
 runner → relay   turn_failed         key, code (agent_failed | interrupted), message
+relay  → runner  steer               key, into, session, agent_session_id?, transcript   (protocol 2)
+runner → relay   merged              key, into                                           (protocol 2)
 relay  → runner  session_op          op_id, op (new | compact), session, agent_session_id?
 runner → relay   session_op_result   op_id, agent_session_id, context?
 runner → relay   session_op_failed   op_id, code (not_supported | agent_failed), message
@@ -41,6 +43,9 @@ runner → relay   session_op_failed   op_id, code (not_supported | agent_failed
 
 `hello` is the first frame on every connection, including reconnects. If the relay doesn't support its `protocol`
 version it closes with `4002` (`unsupported_protocol`).
+
+The current version is 2, which added steering. Relays also accept 1: they never send `steer`
+to a version 1 runner and refuse a turn for a busy session with `session_busy` instead.
 
 ## Heartbeat
 
@@ -67,6 +72,10 @@ The runner **must** guarantee a key runs at most once against the agent. Our Her
 does this by passing `key` as the agent's own idempotency key (Hermes dedups durably). A
 runner for an agent without idempotency has to keep its own durable ledger of keys.
 
+Steers are the exception: agents don't dedup them, so the relay sends each `steer` once and
+never re-sends it (see Reconnects), and the runner doesn't retry delivering one (a failed
+request may still have been applied).
+
 ### Reconnects
 
 Turns can be in flight when the socket drops. On the next connection:
@@ -80,6 +89,29 @@ Turns can be in flight when the socket drops. On the next connection:
 - The relay re-sends turns that have no outcome and aren't in `in_flight`, **if they're
   recent** (ours: under 2 minutes old). Safe because of the at-most-once rule above.
 - Older turns are marked `unknown` and not re-sent, so a command never runs late by surprise.
+- Steers that have no outcome and aren't in `in_flight` are marked `unknown`, however recent.
+
+## Steering
+
+When a client submits a turn for a session that already has one running, a protocol 2 relay
+sends it as a `steer` into that turn (`into`) instead of refusing it. `key` is still the
+client's `Idempotency-Key`.
+
+1. The runner replies `ack` on receipt, as for `turn`, and lists `key` in `in_flight` until it
+   has sent the outcome.
+2. It delivers `transcript` to the agent's running turn `into`. If `into` isn't running any
+   more (already finished, or not known to this runner process), it runs the steer as a normal
+   turn under `key` in `agent_session_id` instead.
+3. It sends exactly one outcome for `key`:
+   - `merged` (`into`): the agent took the steer into `into`'s run, so `into`'s outcome answers
+     both. Sent after `into`'s outcome, whatever that was.
+   - `result`, `needs_approval` or `turn_failed`: the steer ran as its own turn, or failed.
+
+An agent may take a steer too late for its current reply (Hermes returns it as
+`pending_steer`). The runner then runs that text as a new turn under the latest steer's key;
+any earlier steers into the same turn get `merged`.
+
+A turn that's being steered can be steered again; the agent concatenates them.
 
 ## Session operations
 

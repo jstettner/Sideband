@@ -8,7 +8,8 @@ import { AgentInfo, ContextUsage, IdempotencyKey, SessionName } from "./common.t
  * the literal text frames `ping` (runner → relay) and `pong` (relay → runner).
  */
 
-export const RUNNER_PROTOCOL_VERSION = 1
+/** Current version. 2 added steering (`steer`, `merged`); relays also accept 1. */
+export const RUNNER_PROTOCOL_VERSION = 2
 export const HEARTBEAT_PING = "ping"
 export const HEARTBEAT_PONG = "pong"
 
@@ -19,7 +20,7 @@ const OpId = Schema.String.check(Schema.isPattern(/^[A-Za-z0-9_-]{1,128}$/u))
 /** First message on every connection, including reconnects. */
 export const Hello = Schema.Struct({
   type: Schema.tag("hello"),
-  protocol: Schema.Literal(RUNNER_PROTOCOL_VERSION),
+  protocol: Schema.Literals([1, RUNNER_PROTOCOL_VERSION]),
   runner_version: Schema.String,
   agent: AgentInfo,
   /** Turns this runner process is still executing, so the relay doesn't re-send them. */
@@ -62,6 +63,17 @@ export const TurnFailed = Schema.Struct({
 })
 export type TurnFailed = typeof TurnFailed.Type
 
+/**
+ * A steer was folded into turn `into`: that turn's outcome answers it too. Sent after `into`'s
+ * outcome.
+ */
+export const TurnMerged = Schema.Struct({
+  type: Schema.tag("merged"),
+  key: IdempotencyKey,
+  into: IdempotencyKey
+})
+export type TurnMerged = typeof TurnMerged.Type
+
 export const SessionOpResult = Schema.Struct({
   type: Schema.tag("session_op_result"),
   op_id: OpId,
@@ -84,6 +96,7 @@ export const RunnerMessage = Schema.Union([
   TurnResult,
   TurnNeedsApproval,
   TurnFailed,
+  TurnMerged,
   SessionOpResult,
   SessionOpFailed
 ]).pipe(Schema.toTaggedUnion("type"))
@@ -102,6 +115,22 @@ export const Turn = Schema.Struct({
 })
 export type Turn = typeof Turn.Type
 
+/**
+ * Fold `transcript` into the running turn `into` (protocol 2). If `into` is no longer running,
+ * the runner runs it as a normal turn under `key`. Never re-sent by the relay: steers have no
+ * idempotency at the agent.
+ */
+export const Steer = Schema.Struct({
+  type: Schema.tag("steer"),
+  key: IdempotencyKey,
+  into: IdempotencyKey,
+  session: SessionName,
+  /** Agent session of `into`, for running the steer as its own turn. */
+  agent_session_id: Schema.optionalKey(Schema.String),
+  transcript: Schema.String
+})
+export type Steer = typeof Steer.Type
+
 export const SessionOp = Schema.Struct({
   type: Schema.tag("session_op"),
   op_id: OpId,
@@ -111,5 +140,5 @@ export const SessionOp = Schema.Struct({
 })
 export type SessionOp = typeof SessionOp.Type
 
-export const RelayMessage = Schema.Union([Turn, SessionOp]).pipe(Schema.toTaggedUnion("type"))
+export const RelayMessage = Schema.Union([Turn, Steer, SessionOp]).pipe(Schema.toTaggedUnion("type"))
 export type RelayMessage = typeof RelayMessage.Type

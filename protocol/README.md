@@ -60,6 +60,18 @@ curl -X POST "$BACKEND/v1/turn?session=main" \
 | `needs_approval` | 200 | The agent paused for an approval the client can't give yet |
 | `failed` | 200 | The agent ran it and it failed (`agent_failed`) or was cut short (`interrupted`) |
 | `unknown` | 200 | Contact with the agent was lost; it may or may not have run. Never re-sent |
+| `merged` | 200 | Folded into the turn `into`, which was already running; that turn's outcome answers it |
+
+### Steering
+
+A turn submitted while another one is still running in the same session is a **steer**: the
+backend folds it into the running turn instead of refusing it, and the agent picks it up
+between steps. Its key then reports `merged`, with `into` set to the running turn's key, once
+that turn has an outcome; that outcome answers both. If the running turn finished before the
+steer reached the agent, the steer runs as a turn of its own and gets its own outcome.
+
+A steer is never re-sent: if contact is lost before the backend hears back, it becomes
+`unknown`. Backends (or runners) that can't steer answer `409 session_busy`.
 
 A backend holds `POST /v1/turn` open while the agent works (ours: up to ~25 s) before
 answering `running`, so clients should allow at least 35 s before timing out.

@@ -214,6 +214,41 @@
                         "session",
                         "message"
                       ]
+                    },
+                    {
+                      "type": "object",
+                      "properties": {
+                        "status": {
+                          "type": "string",
+                          "enum": [
+                            "merged"
+                          ]
+                        },
+                        "idempotency_key": {
+                          "type": "string",
+                          "pattern": "^[A-Za-z0-9_-]{16,128}$",
+                          "description": "16-128 characters of [A-Za-z0-9_-]. A UUID is fine."
+                        },
+                        "session": {
+                          "type": "string",
+                          "pattern": "^[a-z0-9][a-z0-9_-]{0,63}$",
+                          "description": "Lowercase [a-z0-9_-], 1-64 characters, starting with a letter or digit."
+                        },
+                        "transcript": {
+                          "type": "string"
+                        },
+                        "into": {
+                          "type": "string",
+                          "pattern": "^[A-Za-z0-9_-]{16,128}$",
+                          "description": "16-128 characters of [A-Za-z0-9_-]. A UUID is fine."
+                        }
+                      },
+                      "required": [
+                        "status",
+                        "idempotency_key",
+                        "session",
+                        "into"
+                      ]
                     }
                   ]
                 }
@@ -352,7 +387,7 @@
             }
           }
         },
-        "description": "Submit one push-to-talk turn: raw `audio/wav` (16 kHz mono PCM16) body, or JSON `{ \"text\": ... }`. `session` names the conversation (e.g. `main`). Retrying with the same `Idempotency-Key` never runs the turn twice: it returns the stored outcome, or `running` while it is still in flight.",
+        "description": "Submit one push-to-talk turn: raw `audio/wav` (16 kHz mono PCM16) body, or JSON `{ \"text\": ... }`. `session` names the conversation (e.g. `main`). Retrying with the same `Idempotency-Key` never runs the turn twice: it returns the stored outcome, or `running` while it is still in flight. A turn submitted while another is running in the session may be folded into it (steering): its outcome is then `merged`, pointing at the turn whose outcome answers both. Backends that can't steer answer `session_busy` instead.",
         "requestBody": {
           "content": {
             "audio/wav": {
@@ -574,6 +609,41 @@
                         "idempotency_key",
                         "session",
                         "message"
+                      ]
+                    },
+                    {
+                      "type": "object",
+                      "properties": {
+                        "status": {
+                          "type": "string",
+                          "enum": [
+                            "merged"
+                          ]
+                        },
+                        "idempotency_key": {
+                          "type": "string",
+                          "pattern": "^[A-Za-z0-9_-]{16,128}$",
+                          "description": "16-128 characters of [A-Za-z0-9_-]. A UUID is fine."
+                        },
+                        "session": {
+                          "type": "string",
+                          "pattern": "^[a-z0-9][a-z0-9_-]{0,63}$",
+                          "description": "Lowercase [a-z0-9_-], 1-64 characters, starting with a letter or digit."
+                        },
+                        "transcript": {
+                          "type": "string"
+                        },
+                        "into": {
+                          "type": "string",
+                          "pattern": "^[A-Za-z0-9_-]{16,128}$",
+                          "description": "16-128 characters of [A-Za-z0-9_-]. A UUID is fine."
+                        }
+                      },
+                      "required": [
+                        "status",
+                        "idempotency_key",
+                        "session",
+                        "into"
                       ]
                     }
                   ]

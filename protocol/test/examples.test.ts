@@ -13,6 +13,7 @@ import {
   TextTurnBody,
   TurnCompleted,
   TurnFailed,
+  TurnMerged,
   TurnNeedsApproval,
   TurnRunning,
   TurnState,
@@ -29,6 +30,7 @@ const examples: Record<string, Schema.Codec<unknown, unknown>> = {
   "http/turn-needs-approval.json": TurnNeedsApproval,
   "http/turn-failed.json": TurnFailed,
   "http/turn-unknown.json": TurnUnknown,
+  "http/turn-merged.json": TurnMerged,
   "http/error-agent-offline.json": AgentOffline,
   "http/error-session-busy.json": SessionBusy,
   "http/error-idempotency-conflict.json": IdempotencyConflict,
@@ -40,6 +42,8 @@ const examples: Record<string, Schema.Codec<unknown, unknown>> = {
   "runner/result.json": Runner.TurnResult,
   "runner/needs-approval.json": Runner.TurnNeedsApproval,
   "runner/turn-failed.json": Runner.TurnFailed,
+  "runner/steer.json": Runner.Steer,
+  "runner/merged.json": Runner.TurnMerged,
   "runner/session-op.json": Runner.SessionOp,
   "runner/session-op-result.json": Runner.SessionOpResult,
   "runner/session-op-failed.json": Runner.SessionOpFailed
@@ -78,7 +82,7 @@ describe("examples", () => {
   })
 
   test("runner messages decode as RunnerMessage / RelayMessage", async () => {
-    const relayToRunner = new Set(["runner/turn.json", "runner/session-op.json"])
+    const relayToRunner = new Set(["runner/turn.json", "runner/steer.json", "runner/session-op.json"])
     for (const name of Object.keys(examples).filter((name) => name.startsWith("runner/"))) {
       const schema = relayToRunner.has(name) ? Runner.RelayMessage : Runner.RunnerMessage
       Schema.decodeUnknownSync(schema)(await readExample(name))
@@ -93,6 +97,13 @@ describe("schemas", () => {
     expect(() =>
       Schema.decodeUnknownSync(Runner.Turn)({ ...turn, key: "4f9c2d7e-8b1a-4c3e-9f2d-6a5b8c7d9e0f", session: "Main" })
     ).toThrow()
+  })
+
+  test("hello accepts protocol 1 and 2, nothing else", () => {
+    const hello = { type: "hello", runner_version: "0.1.0", agent: { name: "Hermes" }, in_flight: [] }
+    expect(Schema.decodeUnknownSync(Runner.Hello)({ ...hello, protocol: 1 }).protocol).toBe(1)
+    expect(Schema.decodeUnknownSync(Runner.Hello)({ ...hello, protocol: 2 }).protocol).toBe(2)
+    expect(() => Schema.decodeUnknownSync(Runner.Hello)({ ...hello, protocol: 3 })).toThrow()
   })
 
   test("unknown fields are ignored", () => {

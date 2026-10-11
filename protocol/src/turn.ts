@@ -83,12 +83,25 @@ export const TurnUnknown = Schema.Struct({
 })
 export type TurnUnknown = typeof TurnUnknown.Type
 
+/**
+ * This turn was a steer: it was folded into turn `into`, which was already running in the
+ * session. `into`'s outcome answers both.
+ */
+export const TurnMerged = Schema.Struct({
+  status: Schema.tag("merged"),
+  ...TurnFields,
+  /** Idempotency key of the turn whose outcome answers this one. */
+  into: IdempotencyKey
+})
+export type TurnMerged = typeof TurnMerged.Type
+
 /** Every turn outcome, discriminated by `status`. Clients treat unknown statuses as errors. */
 export const TurnState = Schema.Union([
   TurnCompleted,
   TurnRunning,
   TurnNeedsApproval,
   TurnFailed,
-  TurnUnknown
+  TurnUnknown,
+  TurnMerged
 ]).pipe(Schema.toTaggedUnion("status"))
 export type TurnState = typeof TurnState.Type

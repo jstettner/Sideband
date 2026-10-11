@@ -62,7 +62,10 @@ export class TurnsGroup extends HttpApiGroup.make("turns")
     }).annotate(OpenApi.Description, [
       "Submit one push-to-talk turn: raw `audio/wav` (16 kHz mono PCM16) body, or JSON `{ \"text\": ... }`.",
       "`session` names the conversation (e.g. `main`). Retrying with the same `Idempotency-Key` never runs the",
-      "turn twice: it returns the stored outcome, or `running` while it is still in flight."
+      "turn twice: it returns the stored outcome, or `running` while it is still in flight.",
+      "A turn submitted while another is running in the session may be folded into it (steering): its",
+      "outcome is then `merged`, pointing at the turn whose outcome answers both. Backends that can't steer",
+      "answer `session_busy` instead."
     ].join(" "))
   )
   .add(

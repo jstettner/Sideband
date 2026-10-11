@@ -80,7 +80,8 @@ export const run = Effect.gen(function*() {
           const pending = outbox.splice(0)
           const hello: Runner.Hello = {
             type: "hello",
-            protocol: Runner.RUNNER_PROTOCOL_VERSION,
+            // Steering (protocol 2) isn't implemented yet: stay on 1 so the relay never sends `steer`.
+            protocol: 1,
             runner_version: pkg.version,
             agent: { name: agent.name },
             // Outcomes still in the outbox count too: the relay should wait for them, not re-send.
@@ -108,6 +109,7 @@ export const run = Effect.gen(function*() {
           }
           const message = decoded.value
           if (message.type === "turn") yield* executor.run(message, emit)
+          else if (message.type === "steer") yield* Effect.logWarning(`ignoring steer ${message.key}: not supported`)
           else yield* executor.sessionOp(message, emit)
           break
         }
