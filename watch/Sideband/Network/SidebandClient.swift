@@ -25,6 +25,8 @@ struct SidebandClient: Sendable {
         let watch_text: String?
         let message: String?
         let retry_after_ms: Int?
+        /// `merged`: key of the turn whose outcome answers this one.
+        let into: String?
     }
 
     /// A session, decoded from `SessionState`. Only the fields the watch uses.
