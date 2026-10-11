@@ -27,6 +27,11 @@ struct SidebandClient: Sendable {
         let retry_after_ms: Int?
     }
 
+    /// A session, decoded from `SessionState`. Only the fields the watch uses.
+    struct Session: Decodable, Sendable {
+        let name: String
+    }
+
     /// Protocol error body: `{ error, message, retryable }`.
     struct Failure: Error, Decodable, Sendable {
         let error: String
@@ -56,7 +61,7 @@ struct SidebandClient: Sendable {
         request.setValue("audio/wav", forHTTPHeaderField: "Content-Type")
         request.setValue(key, forHTTPHeaderField: "Idempotency-Key")
 
-        var turn = try await send { try await Self.session.upload(for: request, fromFile: file) }
+        var turn: Turn = try await send { try await Self.session.upload(for: request, fromFile: file) }
         while turn.status == "running" {
             try? await Task.sleep(for: .milliseconds(turn.retry_after_ms ?? 1000))
             let poll = authorized(URLRequest(url: baseURL.appending(path: "v1/turns/\(key)")))
@@ -65,13 +70,23 @@ struct SidebandClient: Sendable {
         return turn
     }
 
+    /// Starts a fresh agent session behind `session`. The next turn sent under
+    /// it starts a new conversation.
+    func newSession(_ session: String = "main") async throws(Failure) -> Session {
+        var request = authorized(URLRequest(url: baseURL.appending(path: "v1/sessions/\(session)/new")))
+        request.httpMethod = "POST"
+        return try await send { try await Self.session.data(for: request) }
+    }
+
     private func authorized(_ request: URLRequest) -> URLRequest {
         var request = request
         request.setValue("Bearer \(token)", forHTTPHeaderField: "Authorization")
         return request
     }
 
-    private func send(_ perform: () async throws -> (Data, URLResponse)) async throws(Failure) -> Turn {
+    private func send<Body: Decodable>(
+        _ perform: () async throws -> (Data, URLResponse)
+    ) async throws(Failure) -> Body {
         let data: Data
         let response: URLResponse
         do {
@@ -84,8 +99,8 @@ struct SidebandClient: Sendable {
 
         let status = (response as? HTTPURLResponse)?.statusCode ?? 0
         let decoder = JSONDecoder()
-        if (200..<300).contains(status), let turn = try? decoder.decode(Turn.self, from: data) {
-            return turn
+        if (200..<300).contains(status), let body = try? decoder.decode(Body.self, from: data) {
+            return body
         }
         if let failure = try? decoder.decode(Failure.self, from: data) {
             throw failure

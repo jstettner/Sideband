@@ -11,6 +11,7 @@ final class TurnController {
         case starting
         case recording
         case sending
+        case resetting
         case response(transcript: String?, text: String)
         case failed(message: String, retryable: Bool)
     }
@@ -35,7 +36,7 @@ final class TurnController {
     var canStart: Bool {
         switch phase {
         case .idle, .response, .failed: true
-        case .starting, .recording, .sending: false
+        case .starting, .recording, .sending, .resetting: false
         }
     }
 
@@ -87,6 +88,28 @@ final class TurnController {
     func retry() {
         guard case .failed(_, true) = phase, pending != nil else { return }
         Task { await send() }
+    }
+
+    /// Starts a fresh agent session. Drops any unsent recording, since it
+    /// belonged to the old conversation.
+    func newChat() async {
+        guard canStart else { return }
+        guard let client else {
+            fail("no backend configured", retryable: false)
+            return
+        }
+        discardPending()
+        note = nil
+        phase = .resetting
+        do {
+            _ = try await client.newSession()
+            phase = .idle
+            note = "new chat"
+            WKInterfaceDevice.current().play(.success)
+        } catch {
+            // Not retryable here: [retry] resends a recording, not this.
+            fail(Self.describe(error), retryable: false)
+        }
     }
 
     func dismissError() {
@@ -142,6 +165,13 @@ final class TurnController {
         } catch where error.error == "transport" {
             return try await client.submit(audio: clip.url, key: key)
         }
+    }
+
+    private func discardPending() {
+        if let clip = pending?.clip {
+            try? FileManager.default.removeItem(at: clip.url)
+        }
+        pending = nil
     }
 
     private func fail(_ message: String, retryable: Bool) {

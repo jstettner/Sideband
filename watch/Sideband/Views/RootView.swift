@@ -24,14 +24,17 @@ struct RootView: View {
         }
     }
 
-    // Placeholders until sessions and status exist.
     private var topBar: some View {
         HStack {
-            Text("[+]")
+            Button("[+]") { Task { await turn.newChat() } }
+                .buttonStyle(.plain)
+                .foregroundStyle(turn.canStart ? Theme.foreground : Theme.secondary)
+                .disabled(!turn.canStart)
+                .contentShape(Rectangle())
             Spacer()
-            Text("[ ]")
+            // Placeholder until context usage exists.
+            Text("[ ]").foregroundStyle(Theme.secondary)
         }
-        .foregroundStyle(Theme.secondary)
     }
 
     @ViewBuilder
@@ -64,7 +67,7 @@ struct RootView: View {
         case .idle, .response: Task { await turn.start() }
         case .recording: turn.finish()
         case .failed: turn.dismissError()
-        case .starting, .sending: break
+        case .starting, .sending, .resetting: break
         }
     }
 }
@@ -119,6 +122,8 @@ private struct MainPane: View {
                 Text(meter(turn.levels))
             case .sending:
                 Spinner(label: "> thinking")
+            case .resetting:
+                Spinner(label: "> new chat")
             case .failed(let message, _):
                 TypedText(text: "! \(message)")
             case .response:
