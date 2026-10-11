@@ -9,7 +9,7 @@ import type { Runner } from "@sideband/protocol"
 export type TurnStatus = "pending" | "sent" | "acked" | "done" | "unknown"
 
 /** What the runner reported for a turn, stored as `outcome_json`. */
-export type Outcome = Runner.TurnResult | Runner.TurnNeedsApproval | Runner.TurnFailed
+export type Outcome = Runner.TurnResult | Runner.TurnNeedsApproval | Runner.TurnFailed | Runner.TurnMerged
 
 export interface TurnRow {
   readonly key: string
@@ -19,6 +19,8 @@ export interface TurnRow {
   readonly transcript_raw: string | null
   readonly state: TurnStatus
   readonly outcome_json: string | null
+  /** Key of the turn this one was sent to steer, if it was a steer. */
+  readonly steer_into: string | null
   readonly created_at: number
   readonly updated_at: number
 }
@@ -60,7 +62,10 @@ const migrations: ReadonlyArray<string> = [
      context_used     INTEGER,
      context_limit    INTEGER,
      last_activity    INTEGER
-   );`
+   );`,
+  // 2: steering
+  `ALTER TABLE turns ADD COLUMN steer_into TEXT;
+   CREATE INDEX turns_steer_into ON turns (steer_into);`
 ]
 
 /** `storage.kv` key: the agent behind the last runner that said hello, for status while offline. */
@@ -102,25 +107,33 @@ export class Store {
     ).toArray()
   }
 
-  /** Inserts a new turn and makes it its session's active turn. */
+  /**
+   * Inserts a new turn and makes it its session's active turn. A steer (`steerInto`) leaves the
+   * active turn alone: it's answered through that turn.
+   */
   claim(turn: {
     readonly key: string
     readonly session: string
     readonly payloadHash: string
     readonly transcript: string
     readonly transcriptRaw?: string | undefined
-  }, now: number): void {
+  }, now: number, steerInto?: string): void {
     this.sql.exec(
-      `INSERT INTO turns (key, session, payload_hash, transcript, transcript_raw, state, created_at, updated_at)
-       VALUES (?, ?, ?, ?, ?, 'pending', ?, ?)`,
+      `INSERT INTO turns (key, session, payload_hash, transcript, transcript_raw, state, steer_into, created_at, updated_at)
+       VALUES (?, ?, ?, ?, ?, 'pending', ?, ?, ?)`,
       turn.key,
       turn.session,
       turn.payloadHash,
       turn.transcript,
       turn.transcriptRaw ?? null,
+      steerInto ?? null,
       now,
       now
     )
+    if (steerInto !== undefined) {
+      this.sql.exec("UPDATE sessions SET last_activity = ? WHERE name = ?", now, turn.session)
+      return
+    }
     this.sql.exec(
       `INSERT INTO sessions (name, active_key, last_activity) VALUES (?, ?, ?)
        ON CONFLICT (name) DO UPDATE SET active_key = excluded.active_key, last_activity = excluded.last_activity`,
@@ -134,7 +147,11 @@ export class Store {
     this.sql.exec("UPDATE turns SET state = ?, updated_at = ? WHERE key = ?", state, now, key)
   }
 
-  /** Stores the outcome (or marks it lost) and frees the session for the next turn. */
+  /**
+   * Stores the outcome (or marks it lost). If `row` was its session's active turn, the latest
+   * unresolved steer into it takes over (the runner may still run it on its own); otherwise the
+   * session is free for the next turn.
+   */
   resolve(row: TurnRow, outcome: Outcome | undefined, now: number): void {
     this.sql.exec(
       "UPDATE turns SET state = ?, outcome_json = ?, updated_at = ? WHERE key = ?",
@@ -144,14 +161,25 @@ export class Store {
       row.key
     )
     this.sql.exec(
-      "UPDATE sessions SET active_key = NULL, last_activity = ? WHERE name = ? AND active_key = ?",
+      `UPDATE sessions SET
+         active_key = (SELECT key FROM turns WHERE steer_into = ? AND state IN ('pending', 'sent', 'acked')
+                       ORDER BY created_at DESC LIMIT 1),
+         last_activity = ?
+       WHERE name = ? AND active_key = ?`,
+      row.key,
       now,
       row.session,
       row.key
     )
-    if (outcome && outcome.type !== "turn_failed") {
+    if (outcome && (outcome.type === "result" || outcome.type === "needs_approval")) {
       this.setAgentSession(row.session, outcome.agent_session_id, outcome.type === "result" ? outcome.context : undefined, now)
     }
+  }
+
+  /** Deletes resolved turns last updated before `before`. Returns how many. */
+  prune(before: number): number {
+    return this.sql.exec("DELETE FROM turns WHERE state IN ('done', 'unknown') AND updated_at < ?", before)
+      .rowsWritten
   }
 
   session(name: string): SessionRow | undefined {

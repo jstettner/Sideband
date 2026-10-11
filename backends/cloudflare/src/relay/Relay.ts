@@ -14,6 +14,10 @@ const STALE_PING_MS = 45_000
 const RESEND_WINDOW_MS = 2 * 60_000
 /** How long a session operation waits for the runner. */
 const SESSION_OP_TIMEOUT_MS = 25_000
+/** Resolved turns are deleted this long after their last update. */
+const TURN_RETENTION_MS = 7 * 24 * 60 * 60_000
+/** How often the cleanup alarm runs. */
+const CLEANUP_INTERVAL_MS = 24 * 60 * 60_000
 
 const UNKNOWN_MESSAGE = "Lost contact with the agent. The turn may or may not have run."
 
@@ -24,7 +28,12 @@ const CLOSE_UNSUPPORTED_PROTOCOL = 4002
 /** Per-socket state, kept with the socket across hibernation. */
 interface Attachment {
   readonly connectedAt: number
-  readonly hello?: { readonly runner_version: string; readonly agent: AgentInfo }
+  readonly hello?: {
+    readonly runner_version: string
+    readonly agent: AgentInfo
+    /** Absent in attachments saved before protocol 2: those runners speak 1. */
+    readonly protocol?: Runner.Hello["protocol"]
+  }
 }
 
 /**
@@ -70,6 +79,9 @@ export class Relay extends DurableObject<Cloudflare.Env> {
     this.store = new Store(ctx.storage)
     // Heartbeats are answered without waking the object.
     ctx.setWebSocketAutoResponse(new WebSocketRequestResponsePair(Runner.HEARTBEAT_PING, Runner.HEARTBEAT_PONG))
+    void ctx.blockConcurrencyWhile(async () => {
+      if (await ctx.storage.getAlarm() === null) await ctx.storage.setAlarm(Date.now() + CLEANUP_INTERVAL_MS)
+    })
   }
 
   // RPC
@@ -85,13 +97,20 @@ export class Relay extends DurableObject<Cloudflare.Env> {
         : refuse("idempotency_conflict", "This Idempotency-Key was already used for a different command.")
     }
     if (!runner) return refuse("agent_offline", "The agent is offline. Nothing was run.")
-    if (this.store.session(turn.session)?.active_key) {
+    const active = this.store.session(turn.session)?.active_key
+    if (active && runner.protocol < 2) {
       return refuse("session_busy", "The agent is still working on the previous command. Nothing was run.")
     }
 
-    this.store.claim(turn, Date.now())
-    console.log(`turn ${turn.key} → runner (session ${turn.session})`)
-    this.sendTurn(runner.ws, this.store.turn(turn.key)!)
+    if (active) {
+      this.store.claim(turn, Date.now(), active)
+      console.log(`turn ${turn.key} → runner (steer into ${active})`)
+      this.sendSteer(runner.ws, this.store.turn(turn.key)!, active)
+    } else {
+      this.store.claim(turn, Date.now())
+      console.log(`turn ${turn.key} → runner (session ${turn.session})`)
+      this.sendTurn(runner.ws, this.store.turn(turn.key)!)
+    }
     await this.waitForOutcome(turn.key, HOLD_MS)
     return ok(this.turnState(this.store.turn(turn.key)!))
   }
@@ -193,7 +212,8 @@ export class Relay extends DurableObject<Cloudflare.Env> {
       }
       case "result":
       case "needs_approval":
-      case "turn_failed": {
+      case "turn_failed":
+      case "merged": {
         const row = this.store.turn(msg.key)
         // Duplicates (e.g. re-delivered after a reconnect) are ignored.
         if (!row || isResolved(row)) return
@@ -204,6 +224,14 @@ export class Relay extends DurableObject<Cloudflare.Env> {
       case "session_op_failed":
         return this.opWaiters.get(msg.op_id)?.(msg)
     }
+  }
+
+  /** Daily cleanup of old turns. */
+  override async alarm(): Promise<void> {
+    const now = Date.now()
+    const pruned = this.store.prune(now - TURN_RETENTION_MS)
+    if (pruned > 0) console.log(`pruned ${pruned} old turns`)
+    await this.ctx.storage.setAlarm(now + CLEANUP_INTERVAL_MS)
   }
 
   override async webSocketClose(ws: WebSocket, code: number, reason: string): Promise<void> {
@@ -222,22 +250,26 @@ export class Relay extends DurableObject<Cloudflare.Env> {
   /**
    * First message of a connection. Turns the runner is still executing are left alone; other
    * unresolved turns are re-sent if recent (the runner never runs a key twice) or marked
-   * `unknown`, so a command never runs late by surprise.
+   * `unknown`, so a command never runs late by surprise. Steers are never re-sent: the agent
+   * can't dedup them.
    */
   private onHello(ws: WebSocket, hello: Runner.Hello): void {
     const attachment = ws.deserializeAttachment() as Attachment
     ws.serializeAttachment({
       ...attachment,
-      hello: { runner_version: hello.runner_version, agent: hello.agent }
+      hello: { runner_version: hello.runner_version, agent: hello.agent, protocol: hello.protocol }
     } satisfies Attachment)
     this.store.setAgentName(hello.agent.name)
-    console.log(`runner hello: ${hello.agent.name} (runner ${hello.runner_version}), in flight: ${hello.in_flight.length}`)
+    console.log(
+      `runner hello: ${hello.agent.name} (runner ${hello.runner_version}, protocol ${hello.protocol}), ` +
+        `in flight: ${hello.in_flight.length}`
+    )
 
     const inFlight = new Set(hello.in_flight)
     const now = Date.now()
     for (const row of this.store.unresolvedTurns()) {
       if (inFlight.has(row.key)) continue
-      if (now - row.created_at < RESEND_WINDOW_MS) {
+      if (row.steer_into === null && now - row.created_at < RESEND_WINDOW_MS) {
         console.log(`turn ${row.key} re-sent after reconnect`)
         this.sendTurn(ws, row)
       } else {
@@ -256,6 +288,21 @@ export class Relay extends DurableObject<Cloudflare.Env> {
         ...(agentSessionId ? { agent_session_id: agentSessionId } : {}),
         transcript: row.transcript
       } satisfies Runner.Turn
+    ))
+    this.store.setState(row.key, "sent", Date.now())
+  }
+
+  private sendSteer(ws: WebSocket, row: TurnRow, into: string): void {
+    const agentSessionId = this.store.session(row.session)?.agent_session_id
+    ws.send(JSON.stringify(
+      {
+        type: "steer",
+        key: row.key,
+        into,
+        session: row.session,
+        ...(agentSessionId ? { agent_session_id: agentSessionId } : {}),
+        transcript: row.transcript
+      } satisfies Runner.Steer
     ))
     this.store.setState(row.key, "sent", Date.now())
   }
@@ -283,12 +330,12 @@ export class Relay extends DurableObject<Cloudflare.Env> {
   }
 
   /** The connected runner that has said hello, if any, and whether its heartbeat is fresh. */
-  private runner(): { ws: WebSocket; online: boolean } | undefined {
+  private runner(): { ws: WebSocket; online: boolean; protocol: number } | undefined {
     for (const ws of this.ctx.getWebSockets()) {
       const attachment = ws.deserializeAttachment() as Attachment | null
       if (ws.readyState !== WebSocket.OPEN || !attachment?.hello) continue
       const lastPing = this.ctx.getWebSocketAutoResponseTimestamp(ws)?.getTime() ?? attachment.connectedAt
-      return { ws, online: Date.now() - lastPing <= STALE_PING_MS }
+      return { ws, online: Date.now() - lastPing <= STALE_PING_MS, protocol: attachment.hello.protocol ?? 1 }
     }
     return undefined
   }
@@ -297,7 +344,7 @@ export class Relay extends DurableObject<Cloudflare.Env> {
    * The runner, if it's online. If it isn't, nothing will resolve old turns until it comes
    * back, so turns past the re-send window are marked `unknown` now (pollers stop waiting).
    */
-  private liveRunner(): { ws: WebSocket } | undefined {
+  private liveRunner(): { ws: WebSocket; protocol: number } | undefined {
     const runner = this.runner()
     if (runner?.online) return runner
     const now = Date.now()
@@ -327,6 +374,8 @@ export class Relay extends DurableObject<Cloudflare.Env> {
         return { status: "needs_approval", ...base, message: outcome.message }
       case "turn_failed":
         return { status: "failed", ...base, code: outcome.code, message: outcome.message }
+      case "merged":
+        return { status: "merged", ...base, into: outcome.into }
     }
   }
 
