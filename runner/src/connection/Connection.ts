@@ -31,7 +31,8 @@ const decodeMessage = Schema.decodeUnknownExit(Schema.fromJsonString(Runner.Rela
  * Keeps one WebSocket to the relay: `hello` first, `ping` every 15 s, turns dispatched to the
  * executor. Messages emitted while disconnected wait in an outbox and go out after the next
  * `hello`. Reconnects with backoff (≤ 30 s) on any close, except when another runner replaced
- * this one (returns) or the relay rejects our protocol (fails).
+ * this one (returns) or the relay rejects our protocol (fails). A relay that predates protocol 2
+ * rejects it; we then speak 1, without steering.
  */
 export const run = Effect.gen(function*() {
   const config = yield* RunnerConfig
@@ -39,6 +40,7 @@ export const run = Effect.gen(function*() {
   const agent = yield* Agent
   const url = connectUrl(config.backendUrl)
 
+  let protocol: Runner.Hello["protocol"] = Runner.RUNNER_PROTOCOL_VERSION
   const outbox: Array<Runner.RunnerMessage> = []
   /** The socket that has sent `hello`, while it's open. */
   let current: WebSocket | undefined
@@ -80,8 +82,7 @@ export const run = Effect.gen(function*() {
           const pending = outbox.splice(0)
           const hello: Runner.Hello = {
             type: "hello",
-            // Steering (protocol 2) isn't implemented yet: stay on 1 so the relay never sends `steer`.
-            protocol: 1,
+            protocol,
             runner_version: pkg.version,
             agent: { name: agent.name },
             // Outcomes still in the outbox count too: the relay should wait for them, not re-send.
@@ -109,7 +110,7 @@ export const run = Effect.gen(function*() {
           }
           const message = decoded.value
           if (message.type === "turn") yield* executor.run(message, emit)
-          else if (message.type === "steer") yield* Effect.logWarning(`ignoring steer ${message.key}: not supported`)
+          else if (message.type === "steer") yield* executor.steer(message, emit)
           else yield* executor.sessionOp(message, emit)
           break
         }
@@ -127,6 +128,11 @@ export const run = Effect.gen(function*() {
     if (closed.code === CLOSE_REPLACED) {
       yield* Effect.logWarning("another runner connected and replaced this one; exiting")
       return
+    }
+    if (closed.code === CLOSE_UNSUPPORTED_PROTOCOL && protocol > 1) {
+      yield* Effect.logWarning(`the relay doesn't support protocol ${protocol}; using 1 (no steering)`)
+      protocol = 1
+      continue
     }
     if (closed.code === CLOSE_UNSUPPORTED_PROTOCOL) {
       return yield* new UnsupportedProtocol({ message: "the relay doesn't support this runner's protocol version" })
@@ -148,7 +154,8 @@ function connectUrl(backend: URL): URL {
 }
 
 function outcomeKey(message: Runner.RunnerMessage): Array<string> {
-  return message.type === "result" || message.type === "needs_approval" || message.type === "turn_failed"
+  return message.type === "result" || message.type === "needs_approval" || message.type === "turn_failed" ||
+      message.type === "merged"
     ? [message.key]
     : []
 }

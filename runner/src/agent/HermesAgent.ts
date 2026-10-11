@@ -21,6 +21,8 @@ export const layer: Layer.Layer<Agent, never, HermesClient> = Layer.effect(
   Agent,
   Effect.gen(function*() {
     const hermes = yield* HermesClient
+    /** Run of each turn this process is waiting on, by turn key: steers go to it. */
+    const runs = new Map<string, string>()
 
     /**
      * Waits for the run to settle. The status (`GET /v1/runs/{id}`) is the source of truth, the
@@ -64,9 +66,18 @@ export const layer: Layer.Layer<Agent, never, HermesClient> = Layer.effect(
             sessionId: agentSessionId
           }).pipe(unavailable)
           yield* Effect.logInfo(`turn ${key}: hermes run ${runId}${replayed ? " (replayed)" : ""}`)
-          const run = yield* waitForRun(runId, replayed)
+          runs.set(key, runId)
+          const run = yield* waitForRun(runId, replayed).pipe(Effect.ensuring(Effect.sync(() => runs.delete(key))))
           return outcome(run)
         }),
+      steerTurn: ({ key, transcript }) => {
+        const runId = runs.get(key)
+        if (runId === undefined) return Effect.succeed("NotRunning" as const)
+        return hermes.steerRun(runId, transcript).pipe(
+          Effect.tap((result) => Effect.logInfo(`turn ${key}: steer into hermes run ${runId} → ${result}`)),
+          unavailable
+        )
+      },
       sessionOp: (op) =>
         op === "new"
           ? hermes.createSession.pipe(
@@ -81,7 +92,7 @@ export const layer: Layer.Layer<Agent, never, HermesClient> = Layer.effect(
 const outcome = (run: SettledRun): TurnOutcome => {
   switch (run.status) {
     case "completed":
-      return { _tag: "Completed", agentSessionId: run.session_id, watchText: run.output }
+      return { _tag: "Completed", agentSessionId: run.session_id, watchText: run.output, pendingSteer: run.pending_steer }
     case "waiting_for_approval":
       return { _tag: "NeedsApproval", agentSessionId: run.session_id, message: run.approval.description }
     case "failed":

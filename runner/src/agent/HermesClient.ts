@@ -6,7 +6,7 @@ import { HermesConfig } from "../config.ts"
 /**
  * Transient failures (network, 429, 5xx) are retried this many times with exponential backoff
  * (0.5 s, 1 s, … ≈ 30 s in total), enough to ride out a gateway restart. `POST /v1/runs` is safe
- * to retry because of its `Idempotency-Key`.
+ * to retry because of its `Idempotency-Key`. Steers aren't, so they're never retried.
  */
 const RETRY_TIMES = 6
 const RETRY_BASE = "500 millis"
@@ -26,7 +26,13 @@ export const SettledRun = Schema.Union([
     session_id: Schema.String,
     approval: Schema.Struct({ description: Schema.String, command: Schema.optional(Schema.String) })
   }),
-  Schema.Struct({ status: Schema.Literal("completed"), session_id: Schema.String, output: Schema.String }),
+  Schema.Struct({
+    status: Schema.Literal("completed"),
+    session_id: Schema.String,
+    output: Schema.String,
+    /** Steer text that arrived after the final reply; Hermes dropped it. Absent when there's none. */
+    pending_steer: Schema.optional(Schema.String)
+  }),
   Schema.Struct({ status: Schema.Literals(["failed", "interrupted"]), session_id: Schema.String, error: Schema.String }),
   Schema.Struct({ status: Schema.Literal("cancelled"), session_id: Schema.String })
 ])
@@ -44,6 +50,9 @@ export const isSettled = (run: Run): run is SettledRun =>
 
 /** `202` from `POST /v1/runs`, for a new run and for a replay of the same `Idempotency-Key`. */
 const RunAccepted = Schema.Struct({ run_id: Schema.String, replayed: Schema.Boolean })
+
+/** `200` from `POST /v1/runs/{id}/steer`. */
+const SteerAccepted = Schema.Struct({ accepted: Schema.Literal(true) })
 
 /** `201` from `POST /api/sessions`. */
 const SessionCreated = Schema.Struct({ session: Schema.Struct({ id: Schema.String }) })
@@ -71,6 +80,12 @@ export class HermesClient extends Context.Service<HermesClient, {
   }) => Effect.Effect<{ readonly runId: string; readonly replayed: boolean }, HermesError>
   readonly getRun: (runId: string) => Effect.Effect<Run, HermesError>
   /**
+   * Queues `input` into a running run, delivered after its current tool step. Not retried: a
+   * failed call may still have been applied. `NotRunning` (`409`): the run isn't `running`, or
+   * didn't take the text; nothing was applied.
+   */
+  readonly steerRun: (runId: string, input: string) => Effect.Effect<"Steered" | "NotRunning", HermesError>
+  /**
    * Names of the run's events as they happen (`message.delta`, `tool.started`, `approval.request`,
    * `run.completed`, …). Ends when the run finishes. Hermes keeps one in-memory stream per run and
    * drops it when its reader disconnects, so this fails with `404` if the stream is gone.
@@ -83,27 +98,35 @@ export class HermesClient extends Context.Service<HermesClient, {
     HermesClient,
     Effect.gen(function*() {
       const config = yield* HermesConfig
-      const client = (yield* HttpClient.HttpClient).pipe(
+      const once = (yield* HttpClient.HttpClient).pipe(
         HttpClient.mapRequest((request) =>
           request.pipe(
             HttpClientRequest.prependUrl(config.apiUrl.toString()),
             HttpClientRequest.bearerToken(Redacted.value(config.apiKey))
           )
-        ),
+        )
+      )
+      const retrying = once.pipe(
         HttpClient.retryTransient({ times: RETRY_TIMES, schedule: Schedule.exponential(RETRY_BASE) })
       )
 
-      /** Executes `request`; a non-2xx answer becomes a `HermesError` with Hermes's error message. */
-      const execute = (what: string, request: HttpClientRequest.HttpClientRequest) =>
+      /** A `HermesError` for a non-2xx answer, with Hermes's error message. */
+      const failure = (what: string, response: HttpClientResponse.HttpClientResponse) =>
         Effect.gen(function*() {
-          const response = yield* client.execute(request)
-          if (response.status >= 200 && response.status < 300) return response
           const body = yield* HttpClientResponse.schemaBodyJson(ErrorBody)(response).pipe(Effect.option)
           const detail = Option.match(body, {
             onNone: () => "",
             onSome: ({ error }) => `${error.code ? ` ${error.code}` : ""}: ${error.message}`
           })
           return yield* new HermesError({ message: `${what}: ${response.status}${detail}` })
+        })
+
+      /** Executes `request`; a non-2xx answer becomes a `HermesError`. */
+      const execute = (what: string, request: HttpClientRequest.HttpClientRequest) =>
+        Effect.gen(function*() {
+          const response = yield* retrying.execute(request)
+          if (response.status >= 200 && response.status < 300) return response
+          return yield* failure(what, response)
         }).pipe(
           Effect.catchTag("HttpClientError", (e) => Effect.fail(new HermesError({ message: `${what}: ${e.message}` })))
         )
@@ -133,6 +156,24 @@ export class HermesClient extends Context.Service<HermesClient, {
           ).pipe(Effect.map((run) => ({ runId: run.run_id, replayed: run.replayed }))),
         getRun: (runId) =>
           call(`GET /v1/runs/${runId}`, HttpClientRequest.get(`/v1/runs/${encodeURIComponent(runId)}`), Run),
+        steerRun: (runId, input) => {
+          const what = `POST /v1/runs/${runId}/steer`
+          const request = HttpClientRequest.post(`/v1/runs/${encodeURIComponent(runId)}/steer`).pipe(
+            HttpClientRequest.bodyJsonUnsafe({ input })
+          )
+          return Effect.gen(function*() {
+            const response = yield* once.execute(request)
+            if (response.status === 409) return "NotRunning" as const
+            if (response.status < 200 || response.status >= 300) return yield* failure(what, response)
+            yield* HttpClientResponse.schemaBodyJson(SteerAccepted)(response)
+            return "Steered" as const
+          }).pipe(
+            Effect.catchTags({
+              HttpClientError: (e) => Effect.fail(new HermesError({ message: `${what}: ${e.message}` })),
+              SchemaError: (e) => Effect.fail(new HermesError({ message: `${what}: unexpected answer: ${e.message}` }))
+            })
+          )
+        },
         runEvents: (runId) => {
           const what = `GET /v1/runs/${runId}/events`
           return HttpClientResponse.stream(
