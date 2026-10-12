@@ -35,8 +35,10 @@ The backend (`packages/backend-cloudflare`) is an Alchemy stack (`alchemy.run.ts
 
 - **Logging:** Alchemy's bridge installs `Logger.consolePretty` outermost. Provide `JsonLogs` from `Layers.ts`
   around each handler (the Worker's `fetch`, each Relay method and socket handler) so our logs are JSON.
-- **Stages:** `dev_*` (`bun run dev`) and `test_*` (`Test.make`) run on local workerd only. Never deploy one
-  outside dev mode, and keep `Test.make({ dev: true })` in Workers tests.
+- **Stages:** `prod` is the only deployed stage, with its state in the account (`Cloudflare.state()`), and its
+  script keeps the name wrangler gave it (`Stage.PROD_SCRIPT`). `dev_*` (`bun run dev`) and `test_*`
+  (`Test.make`) run on local workerd only. Never deploy one outside dev mode, and keep `Test.make({ dev: true })`
+  in Workers tests.
 - **Durable Object names are permanent.** In `Cloudflare.DurableObject<X, Shape>()("Name")`, `"Name"` is the
   logical id, the binding name, and the class name. On each deploy Alchemy diffs a Worker's DO classes by logical
   id, and a removed id becomes `deleted_classes`, which deletes every object of that class. Never change

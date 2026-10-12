@@ -31,6 +31,8 @@
     "lint": "oxlint && dprint check && bun run openapi:check && bun scripts/check-file-names.ts",
     "format": "dprint fmt",
     "dev": "bun packages/backend-cloudflare/src/scripts/dev.ts",
+    "plan": "bun run --cwd packages/backend-cloudflare plan",
+    "deploy": "bun run --cwd packages/backend-cloudflare deploy",
     "openapi": "bun packages/protocol/src/scripts/genOpenapi.ts",
     "openapi:check": "bun packages/protocol/src/scripts/genOpenapi.ts --check"
   },
