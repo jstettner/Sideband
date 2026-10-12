@@ -87,7 +87,7 @@ export const run = Effect.gen(function*() {
   const connectOnce = Effect.fn("Connection.connectOnce")(
     function*(version: Runner.Hello["protocol"]) {
       // `Socket.makeWebSocket` passes only `protocols` to the constructor, so it can't send the auth
-      // header: dial through the constructor ourselves (docs/upstream.md).
+      // header: dial through the constructor ourselves.
       const ws = yield* Effect.acquireRelease(
         Effect.sync(() =>
           makeWebSocket(url.href, { headers: { authorization: `Bearer ${Redacted.value(config.runnerToken)}` } })
