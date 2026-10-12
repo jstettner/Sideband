@@ -63,7 +63,7 @@ Under `CI`, the sync is skipped.
 Local config is never committed. Copy the `*.example` files:
 
 - `packages/backend-cloudflare/.env.example` (the tokens and Aqua key `bun run dev` binds)
-- `.env.prod.example` (the same for prod, read by `bun run plan` and `bun run deploy`)
+- `.env.prod.example` (the same for prod, read by `bun run deploy`)
 - `packages/runner/.env.example` (the runner's settings; `bun run runner:install` copies them)
 - `watch/Config/Local.xcconfig.example`
 
@@ -114,7 +114,7 @@ To deploy prod:
    `packages/backend-cloudflare`.
 2. Copy `.env.prod.example` to `.env.prod` and fill in the tokens the watch and the runner use, and the Aqua
    key. The Worker binds each as a secret on every deploy.
-3. `bun run plan`, then `bun run deploy`.
+3. `bun run deploy`. It shows the plan and asks before applying it.
 
 The prod Worker's script is `sideband`, so its URL is `https://sideband.<subdomain>.workers.dev`. The Relay
 migrates its own SQLite when it activates; a deploy needs no migration step.

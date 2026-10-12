@@ -30,30 +30,12 @@ language service flags the ones that aren't. Code logs with `Effect.log*`, never
 
 ## Architecture
 
-`docs/architecture.md` has the topology, the stages, and the turn lifecycle.
-
-### Packages
-
-- `@sideband/protocol`: the wire contract and nothing else: the watch-facing `HttpApi`, the runner WebSocket
-  messages, and their schemas. Every backend and runner depends on it. `openapi.json` is generated from it, and
-  `bun run lint` fails when it is stale; the watch reads that contract.
-- `@sideband/transcription`: speech to text for any backend: the `Transcription` service, WAV canonicalization,
-  and each provider.
-- `@sideband/agents`: the agents a runner can drive: the `Agent` service, each adapter, and their contract.
-- `@sideband/backend-cloudflare`: the Cloudflare host: the Worker, the Relay Durable Object, and the Alchemy
-  stack. It owns every binding.
-- `@sideband/runner`: the Bun host next to the agent: the relay connection, the executor, and the
-  `sideband-runner` command that installs it as a launchd agent.
-- `watch/`: the Swift app. It depends only on the protocol.
-
-`protocol`, `transcription`, and `agents` are platform-free: `types: []`, so a Node, Bun, or Workers import fails
-`bun run check`. There is no shared non-wire package; add one only when a second host needs the same code.
-
 ### Where code goes
 
 Ask: would this code run unchanged on another host (Node, Bun, another backend, a test)?
 
-- **Yes:** it goes in a platform-free package, or in a platform-free module of a host package when only that
+- **Yes:** it goes in a platform-free package (`protocol`, `transcription`, `agents`: `types: []`, so a Node,
+  Bun, or Workers import fails `bun run check`), or in a platform-free module of a host package when only that
   host uses it so far (`Relay/Lifecycle.ts`, `Relay/Store.ts`, `Launchd/Plist.ts`).
   - A decision is a **pure function** from values to values: the relay's steps (`Lifecycle.submit`,
     `Lifecycle.hello`), `Lifecycle.turnState`, `Lifecycle.classifyFrame`.
@@ -84,6 +66,11 @@ Ask: would this code run unchanged on another host (Node, Bun, another backend, 
 - Values that cross Durable Object RPC or socket attachments survive `structuredClone`: a schema's `Type` stays
   plain. An absent value is an `optionalKey` field, not `Option`; an instant is epoch milliseconds, not
   `DateTime`; secrets are never data. Use `Option` and `DateTime` inside functions.
+- Identifiers and instants are branded, so one can't stand in for another: `Common.IdempotencyKey`,
+  `Common.SessionName`, `Common.AgentSessionId`, `Runner.OpId`, `Lifecycle.EpochMillis`.
+- Make impossible states unrepresentable: a value whose fields depend on its state is a union by that state
+  (`Lifecycle.TurnRow`: only a `done` turn has an outcome). A state our own writes never produce is not a case to
+  handle: fail it as a defect.
 - A closed set of named variants that each carry something (an agent adapter, a transcription provider) is one
   record keyed by name (`Adapters.adapters`, `Providers.providers`), the only place each name is written. Derive
   the rest from its keys (`Config.Literals(Record.keys(record))`) and handle every variant with a record of the
@@ -129,7 +116,7 @@ The backend (`packages/backend-cloudflare`) is an Alchemy stack (`alchemy.run.ts
 - **Logging:** Alchemy's bridge installs `Logger.consolePretty` outermost. Provide `JsonLogs` from `Layers.ts`
   around each handler (the Worker's `fetch`, each Relay method and socket handler) so our logs are JSON.
 - **Stages:** `prod` is the only deployed stage, with its state in the account (`Cloudflare.state()`), and its
-  script keeps the name wrangler gave it (`Stage.PROD_SCRIPT`). `dev_*` (`bun run dev`) and `test_*`
+  script is named `Stage.PROD_SCRIPT`, which fixes its workers.dev URL. `dev_*` (`bun run dev`) and `test_*`
   (`Test.make`) run on local workerd only. Never deploy one outside dev mode, and keep `Test.make({ dev: true })`
   in Workers tests.
 - **Durable Object names are permanent.** In `Cloudflare.DurableObject<X, Shape>()("Name")`, `"Name"` is the

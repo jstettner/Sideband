@@ -52,7 +52,7 @@ A turn is one row of the relay's `turns` table, keyed by the client's `Idempoten
                                    unknown  (lost: may or may not have run; never run again)
 ```
 
-- `pending` exists only in rows written before a turn was stored as `sent` in the step that sends it.
+- Only a `done` turn has an outcome; the row's type (`Lifecycle.TurnRow`) and a table check both say so.
 - `done` and `unknown` are final: duplicate outcomes are ignored, and the turn is pruned seven days later.
 - The client sees `running` until the turn is final (`Lifecycle.turnState`); `submit` holds the request open
   for up to 25 s first.
