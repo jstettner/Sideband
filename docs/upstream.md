@@ -15,3 +15,13 @@ deleted in the same change that removes its workaround.
 - **To remove:** when the catalog moves `effect` and the `@effect/*` packages to 4.0.3 or later, set the override
   to the same version, or delete it if `bun install` resolves `@effect/platform-node-shared` to the catalog's
   version without it.
+
+### `Socket.makeWebSocket` can't send handshake headers
+
+- **What:** `Socket.makeWebSocket` passes only `options.protocols` to the `WebSocketConstructor`, so a client
+  can't set `WebSocketClientOptions.headers`, which the Bun and Node constructors support. The runner
+  authenticates with an `Authorization` header, so `packages/runner/src/Connection/Connection.ts` calls
+  `Socket.WebSocketConstructor` itself and wraps the result with `Socket.fromWebSocket`.
+- **Blocked on:** no upstream issue filed yet. Unchanged on Effect `main` as of 2026-10-07.
+- **To remove:** once `makeWebSocket` forwards headers, replace the `acquireRelease` and `fromWebSocket` in
+  `connectOnce` with `Socket.makeWebSocket(url, { headers })`.
