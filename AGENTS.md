@@ -114,7 +114,10 @@ The backend (`packages/backend-cloudflare`) is an Alchemy stack (`alchemy.run.ts
 (source, `examples/`, and `website/src/content/docs/`) before writing Alchemy code.
 
 - **Logging:** Alchemy's bridge installs `Logger.consolePretty` outermost. Provide `JsonLogs` from `Layers.ts`
-  around each handler (the Worker's `fetch`, each Relay method and socket handler) so our logs are JSON.
+  around each handler (the Worker's `fetch`, each Relay method and socket handler) so our logs are JSON. HttpApi
+  handlers run in the context their router was built in, so build the router under `JsonLogs` too
+  (`SidebandWorker.serve`), and never hand the Worker's init context (`Effect.context()`) to a handler's layers:
+  it carries the bridge's logger. Provide the service alone.
 - **Stages:** `prod` is the only deployed stage, with its state in the account (`Cloudflare.state()`), and its
   script is named `Stage.PROD_SCRIPT`, which fixes its workers.dev URL. `dev_*` (`bun run dev`) and `test_*`
   (`Test.make`) run on local workerd only. Never deploy one outside dev mode, and keep `Test.make({ dev: true })`

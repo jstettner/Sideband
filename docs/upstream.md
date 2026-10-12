@@ -8,10 +8,11 @@ deleted in the same change that removes its workaround.
 
 ### JSON logs need a provide around every handler
 
-- **What:** `JsonLogs` in `packages/backend-cloudflare/src/Layers.ts`, provided around the Worker's `fetch`
-  (`Sideband/SidebandWorker.ts`) and each Relay method and socket handler (`Relay/RelayDO.ts`). Alchemy's Worker
-  bridge installs `Logger.consolePretty` as the outermost logger, so each handler has to override it from the
-  inside.
+- **What:** `JsonLogs` in `packages/backend-cloudflare/src/Layers.ts`, provided around the Worker's `fetch` and
+  its router's construction (`serve` in `Sideband/SidebandWorker.ts`), and around each Relay method and socket
+  handler (`Relay/RelayDO.ts`). Alchemy's Worker bridge installs `Logger.consolePretty` as the outermost logger,
+  so each handler has to override it from the inside; HttpApi handlers keep the context their router was built
+  in, so the build needs it too.
 - **Blocked on:** alchemy#1954 (open, no fix yet).
 - **To remove:** once the bridge lets a Worker choose its logger, choose `Logger.consoleJson` once, delete the
   per-handler provides, and update the logging rule in `AGENTS.md`.

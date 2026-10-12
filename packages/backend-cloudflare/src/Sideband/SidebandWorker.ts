@@ -8,7 +8,7 @@
  * Worker's bundle and the stack use.
  */
 import { Api } from "@sideband/protocol"
-import type { Transcription } from "@sideband/transcription"
+import { Transcription } from "@sideband/transcription"
 import * as Cloudflare from "alchemy/Cloudflare"
 import { Stack } from "alchemy/Stack"
 import { type Config, Config as C, Effect, Exit, Layer, Schema } from "effect"
@@ -35,6 +35,20 @@ const Health = Schema.Struct({ ok: Schema.Boolean, relay: Schema.Literals(["ok",
 
 const health = HttpServerResponse.schemaJson(Health)
 
+/**
+ * The Worker's `fetch` over `routes`, logging through `logs` instead of the bridge's outer `consolePretty`
+ * (alchemy#1954). HttpApi handlers run in the context their router was built in, so the router is built under
+ * `logs` too: providing them around each request alone doesn't reach the handlers.
+ */
+export const serve = Effect.fnUntraced(function*<E, R>(
+  routes: Layer.Layer<never, E, R>,
+  logs: Layer.Layer<never>
+) {
+  const fetch = yield* HttpRouter.toHttpEffect(routes).pipe(Effect.provide(logs))
+
+  return Envelope.respond(fetch).pipe(Effect.provide(logs))
+})
+
 export class SidebandWorker extends Cloudflare.Worker<SidebandWorker, {}, RelayDO>()("Sideband") {}
 
 /** The Worker's props on `stage`. Only prod names its script; local stages keep Alchemy's generated names. */
@@ -59,14 +73,16 @@ export default SidebandWorker.make(
     // Bound as secrets.
     const watchToken = yield* C.Redacted("WATCH_TOKEN")
     const runnerToken = yield* C.Redacted("RUNNER_TOKEN")
-    const transcription = yield* Effect.context<Transcription.Transcription>()
+    // The service alone, not the init context it came from: that context carries the bridge's logger, which
+    // would reach every handler.
+    const transcription = yield* Transcription.Transcription
 
     const api = HttpApiBuilder.layer(Api.SidebandApi).pipe(
       Layer.provide([Turns.layer, Status.layer]),
       Layer.provide([
         Auth.layer(watchToken),
         RelayClient.layer(relays),
-        Layer.succeedContext(transcription),
+        Layer.succeed(Transcription.Transcription)(transcription),
         HttpServer.layerServices
       ])
     )
@@ -80,11 +96,11 @@ export default SidebandWorker.make(
       return yield* health({ ok: false, relay: "error" }, { status: 503 }).pipe(Effect.orDie)
     }).pipe(Effect.withSpan("Sideband.healthz"))
 
-    const fetch = yield* HttpRouter.toHttpEffect(
-      Layer.mergeAll(api, Runner.route(relays, runnerToken), HttpRouter.add("GET", "/healthz", healthz))
+    const fetch = yield* serve(
+      Layer.mergeAll(api, Runner.route(relays, runnerToken), HttpRouter.add("GET", "/healthz", healthz)),
+      Layers.JsonLogs
     )
 
-    // The inner provide beats the bridge's outer `consolePretty` (alchemy#1954).
-    return { fetch: Envelope.respond(fetch).pipe(Effect.provide(Layers.JsonLogs)) }
+    return { fetch }
   }).pipe(Effect.provide(Layer.mergeAll(RelayDOLive, services)))
 )
