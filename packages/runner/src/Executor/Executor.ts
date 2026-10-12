@@ -1,6 +1,6 @@
+import { Agent } from "@sideband/agents"
 import type { Runner } from "@sideband/protocol"
-import { Context, Deferred, Effect, FiberSet, Layer, Match, type Types } from "effect"
-import { Agent } from "../agent/Agent.ts"
+import { Context, Deferred, Effect, FiberSet, Layer, type Types } from "effect"
 
 /** Sends a message to the relay (or holds it until the next connection). */
 export type Emit = (message: Runner.RunnerMessage) => Effect.Effect<void>
@@ -39,7 +39,7 @@ export class Executor extends Context.Service<Executor, {
   static readonly layer = Layer.effect(
     Executor,
     Effect.gen(function*() {
-      const agent = yield* Agent
+      const agent = yield* Agent.Agent
       const fibers = yield* FiberSet.make()
       const inFlight = new Set<string>()
       /** Steers into each turn whose run is in progress here, in arrival order, by turn key. */
@@ -49,7 +49,7 @@ export class Executor extends Context.Service<Executor, {
         turn: { readonly key: string; readonly agentSessionId?: string | undefined; readonly transcript: string }
       ) =>
         agent.runTurn(turn).pipe(
-          Effect.map(Match.valueTags({
+          Effect.map(Agent.TurnOutcome.match({
             Completed: (outcome): Ran => {
               const message: Types.Mutable<Runner.TurnResult> = {
                 type: "result",
@@ -78,12 +78,12 @@ export class Executor extends Context.Service<Executor, {
             })
           })),
           Effect.catchTag("AgentUnavailable", (e): Effect.Effect<Ran> =>
-            Effect.logWarning(`turn ${turn.key}: ${e.message}`).pipe(
+            Effect.logWarning("agent unavailable", e.message).pipe(
               Effect.as({ message: { type: "turn_failed", key: turn.key, code: "agent_failed", message: e.message } })
             )),
           // Interruption (shutdown) is not an outcome: the relay re-sends the turn to the next process.
           Effect.catchDefect((defect) =>
-            Effect.logError(`turn ${turn.key} crashed`, defect).pipe(
+            Effect.logError("turn crashed", defect).pipe(
               Effect.as<Ran>({
                 message: {
                   type: "turn_failed",
@@ -98,7 +98,8 @@ export class Executor extends Context.Service<Executor, {
 
       /** Sends `key`'s outcome; it's no longer in flight. */
       const settle = (key: string, message: Runner.RunnerMessage, emit: Emit) =>
-        Effect.logInfo(`turn ${key} → ${message.type}`).pipe(
+        Effect.logInfo(`→ ${message.type}`).pipe(
+          Effect.annotateLogs({ turn: key }),
           Effect.andThen(emit(message)),
           Effect.ensuring(Effect.sync(() => inFlight.delete(key)))
         )
@@ -131,15 +132,11 @@ export class Executor extends Context.Service<Executor, {
 
           if (ran.pendingSteer === undefined) return
 
-          if (!followUp) {
-            return yield* Effect.logWarning(
-              `turn ${turn.key}: dropped steer text no steer here owns: ${ran.pendingSteer}`
-            )
-          }
+          if (!followUp) return yield* Effect.logWarning("dropped steer text no steer here owns", ran.pendingSteer)
 
-          yield* Effect.logInfo(`turn ${turn.key}: steer arrived too late, running it as ${followUp.key}`)
+          yield* Effect.logInfo(`steer arrived too late, running it as ${followUp.key}`)
           yield* runTurn({ key: followUp.key, agentSessionId: ran.agentSessionId, transcript: ran.pendingSteer }, emit)
-        })
+        }).pipe(Effect.annotateLogs({ turn: turn.key }))
 
       /** Delivers a steer (already acked and in flight) into its running turn. */
       const deliverSteer = (msg: Runner.Steer, steer: Steer, emit: Emit) =>
@@ -147,8 +144,8 @@ export class Executor extends Context.Service<Executor, {
           Effect.tap((result) => Deferred.succeed(steer.delivered, result)),
           Effect.flatMap((result) =>
             result === "Steered"
-              ? Effect.logInfo(`turn ${msg.key}: steered into ${msg.into}`)
-              : Effect.logInfo(`turn ${msg.key}: ${msg.into} isn't running, running it on its own`).pipe(
+              ? Effect.logInfo(`steered into ${msg.into}`)
+              : Effect.logInfo(`${msg.into} isn't running, running it on its own`).pipe(
                 Effect.andThen(
                   runTurn({ key: msg.key, agentSessionId: msg.agent_session_id, transcript: msg.transcript }, emit)
                 )
@@ -157,14 +154,14 @@ export class Executor extends Context.Service<Executor, {
           Effect.catchTag(
             "AgentUnavailable",
             (e) =>
-              Effect.logWarning(`turn ${msg.key}: steer failed: ${e.message}`).pipe(
+              Effect.logWarning("steer failed", e.message).pipe(
                 Effect.andThen(
                   settle(msg.key, { type: "turn_failed", key: msg.key, code: "agent_failed", message: e.message }, emit)
                 )
               )
           ),
           Effect.catchDefect((defect) =>
-            Effect.logError(`turn ${msg.key}: steer crashed`, defect).pipe(
+            Effect.logError("steer crashed", defect).pipe(
               Effect.andThen(settle(msg.key, {
                 type: "turn_failed",
                 key: msg.key,
@@ -174,7 +171,8 @@ export class Executor extends Context.Service<Executor, {
             )
           ),
           // Whatever happened, `into`'s run mustn't wait on this steer forever.
-          Effect.ensuring(Deferred.succeed(steer.delivered, "Failed"))
+          Effect.ensuring(Deferred.succeed(steer.delivered, "Failed")),
+          Effect.annotateLogs({ turn: msg.key })
         )
 
       return Executor.of({
@@ -183,7 +181,7 @@ export class Executor extends Context.Service<Executor, {
           // A turn the relay re-sent while we're still running it: the running one will answer.
           if (inFlight.has(turn.key)) return yield* emit({ type: "ack", key: turn.key })
           inFlight.add(turn.key)
-          yield* Effect.logInfo(`turn ${turn.key}: ${turn.transcript}`)
+          yield* Effect.logInfo("received", turn.transcript).pipe(Effect.annotateLogs({ turn: turn.key }))
           yield* emit({ type: "ack", key: turn.key })
           yield* FiberSet.run(
             fibers,
@@ -196,13 +194,17 @@ export class Executor extends Context.Service<Executor, {
           // The relay never re-sends a steer, but be safe: one delivery per key.
           if (inFlight.has(msg.key)) return yield* emit({ type: "ack", key: msg.key })
           inFlight.add(msg.key)
-          yield* Effect.logInfo(`turn ${msg.key} (steer into ${msg.into}): ${msg.transcript}`)
+          yield* Effect.logInfo(`received a steer into ${msg.into}`, msg.transcript).pipe(
+            Effect.annotateLogs({ turn: msg.key })
+          )
           yield* emit({ type: "ack", key: msg.key })
           const steers = steerable.get(msg.into)
 
           if (!steers) {
             // Not running here (finished, or started by an earlier process): no steer to try.
-            yield* Effect.logInfo(`turn ${msg.key}: ${msg.into} isn't running, running it on its own`)
+            yield* Effect.logInfo(`${msg.into} isn't running, running it on its own`).pipe(
+              Effect.annotateLogs({ turn: msg.key })
+            )
             yield* FiberSet.run(
               fibers,
               runTurn({ key: msg.key, agentSessionId: msg.agent_session_id, transcript: msg.transcript }, emit)
@@ -246,7 +248,9 @@ export class Executor extends Context.Service<Executor, {
                     message: e.message
                   })
               }),
-              Effect.tap((result) => Effect.logInfo(`session ${op.op} (${op.session}) → ${result.type}`)),
+              Effect.tap((result) =>
+                Effect.logInfo(`${op.op} → ${result.type}`).pipe(Effect.annotateLogs({ session: op.session }))
+              ),
               Effect.flatMap(emit)
             )
           ).pipe(Effect.asVoid)

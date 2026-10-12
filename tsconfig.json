@@ -5,6 +5,8 @@
   "references": [
     { "path": "packages/protocol" },
     { "path": "packages/protocol/tsconfig.node.json" },
+    { "path": "packages/transcription" },
+    { "path": "packages/agents" },
     { "path": "packages/runner" },
     { "path": "packages/backend-cloudflare" },
     { "path": "scripts" }

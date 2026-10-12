@@ -1,9 +1,8 @@
 import { Api, Errors, Turn } from "@sideband/protocol"
+import { Transcription, Wav } from "@sideband/transcription"
 import { Effect } from "effect"
 import { HttpApiBuilder } from "effect/http-api"
-import { canonicalWav, InvalidWav } from "../audio/wav.ts"
 import { RelayClient } from "../Relay/RelayClient.ts"
-import { Transcription } from "../transcription/Transcription.ts"
 
 /**
  * SHA-256 of the request body. The relay stores it with the key, so a retry with the same key
@@ -27,7 +26,7 @@ export const layer = HttpApiBuilder.group(
   Api.SidebandApi,
   "turns",
   Effect.fnUntraced(function*(handlers) {
-    const transcription = yield* Transcription
+    const transcription = yield* Transcription.Transcription
     const relay = yield* RelayClient
 
     return handlers
@@ -48,15 +47,15 @@ export const layer = HttpApiBuilder.group(
               })
             }
 
-            const audio = yield* Effect.try({
-              try: () => canonicalWav(payload),
-              catch: (cause) =>
+            const audio = yield* Effect.fromResult(Wav.canonical(payload)).pipe(
+              Effect.mapError((e) =>
                 new Errors.UnsupportedMediaType({
                   error: "unsupported_media_type",
-                  message: cause instanceof InvalidWav ? cause.message : "unreadable WAV",
+                  message: e.message,
                   retryable: false
                 })
-            })
+              )
+            )
 
             const result = yield* transcription.transcribe(audio, key).pipe(
               Effect.tapError((e) => Effect.logWarning(e.message)),

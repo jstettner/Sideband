@@ -1,7 +1,24 @@
-import { Context, Data, Effect, Layer, Option, Predicate, Redacted, Schedule, Schema, Stream, type Types } from "effect"
+import {
+  Config,
+  Context,
+  Effect,
+  Layer,
+  Option,
+  Predicate,
+  Redacted,
+  Schedule,
+  Schema,
+  Stream,
+  type Types
+} from "effect"
 import * as Sse from "effect/encoding/Sse"
 import { HttpClient, HttpClientRequest, HttpClientResponse } from "effect/http"
-import { HermesConfig } from "../config.ts"
+
+/** Hermes API server (`API_SERVER_*` in `~/.hermes/.env`). */
+export const config = Config.all({
+  apiUrl: Config.URL("HERMES_API_URL"),
+  apiKey: Config.Redacted("HERMES_API_KEY")
+})
 
 /**
  * Transient failures (network, 429, 5xx) are retried this many times with exponential backoff
@@ -13,9 +30,9 @@ const RETRY_TIMES = 6
 const RETRY_BASE = "500 millis"
 
 /** A Hermes API call failed, or answered something we couldn't decode. */
-export class HermesError extends Data.TaggedError("HermesError")<{
-  readonly message: string
-}> {}
+export class HermesError extends Schema.TaggedError<HermesError>()("HermesError", {
+  message: Schema.String
+}) {}
 
 /** A run that is still going. */
 const PendingRun = Schema.Struct({
@@ -115,17 +132,19 @@ export class HermesClient extends Context.Service<HermesClient, {
   readonly runEvents: (runId: string) => Stream.Stream<string, HermesError>
   /** Creates an empty session and returns its ID. */
   readonly createSession: Effect.Effect<string, HermesError>
-}>()("sideband/runner/agent/HermesClient") {
-  static readonly layer = Layer.effect(
+}>()("@sideband/agents/HermesClient") {}
+
+export const layer = (
+  options: Config.Success<typeof config>
+): Layer.Layer<HermesClient, never, HttpClient.HttpClient> =>
+  Layer.effect(
     HermesClient,
     Effect.gen(function*() {
-      const config = yield* HermesConfig
-
       const once = (yield* HttpClient.HttpClient).pipe(
         HttpClient.mapRequest((request) =>
           request.pipe(
-            HttpClientRequest.prependUrl(config.apiUrl.toString()),
-            HttpClientRequest.bearerToken(Redacted.value(config.apiKey))
+            HttpClientRequest.prependUrl(options.apiUrl.toString()),
+            HttpClientRequest.bearerToken(Redacted.value(options.apiKey))
           )
         )
       )
@@ -227,4 +246,10 @@ export class HermesClient extends Context.Service<HermesClient, {
       })
     })
   )
-}
+
+/** {@link layer} with its {@link config} read from the host's environment. */
+export const layerConfig: Layer.Layer<HermesClient, Config.ConfigError, HttpClient.HttpClient> = Layer.unwrap(
+  Effect.gen(function*() {
+    return layer(yield* config)
+  })
+)

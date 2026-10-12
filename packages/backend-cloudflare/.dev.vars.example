@@ -3,3 +3,5 @@
 WATCH_TOKEN=
 RUNNER_TOKEN=
 AQUA_API_KEY=
+# Transcription provider; defaults to aqua (the only one so far).
+# SIDEBAND_TRANSCRIPTION=aqua

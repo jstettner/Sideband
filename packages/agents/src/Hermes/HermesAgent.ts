@@ -1,7 +1,7 @@
 import { Duration, Effect, Layer, Stream } from "effect"
-import { Agent, AgentUnavailable, NotSupported, type TurnOutcome } from "./Agent.ts"
+import { Agent, AgentUnavailable, NotSupported, TurnOutcome } from "../Agent/Agent.ts"
 import { HermesClient, isSettled, type SettledRun } from "./HermesClient.ts"
-import { watchInstructions } from "./instructions.ts"
+import { watchInstructions } from "./Instructions.ts"
 
 /** For replayed runs and lost event streams (see `waitForRun`). */
 const POLL_INTERVAL = Duration.seconds(1)
@@ -15,7 +15,7 @@ const SETTLING_EVENTS = new Set(["run.completed", "run.failed", "run.cancelled",
  * The run's event stream says when it settles or stops for an approval.
  *
  * `usage` on a run is cumulative session throughput, not context-window occupancy, so no
- * `context` is reported (preplan: "Known gap"). There is no compact endpoint either.
+ * `context` is reported. There is no compact endpoint either.
  */
 export const layer: Layer.Layer<Agent, never, HermesClient> = Layer.effect(
   Agent,
@@ -59,7 +59,7 @@ export const layer: Layer.Layer<Agent, never, HermesClient> = Layer.effect(
 
     return Agent.of({
       name: "hermes",
-      runTurn: Effect.fn("Agent.runTurn")(function*({ key, agentSessionId, transcript }) {
+      runTurn: Effect.fn("Hermes.runTurn")(function*({ key, agentSessionId, transcript }) {
         const { runId, replayed } = yield* hermes.createRun({
           key,
           input: transcript,
@@ -73,7 +73,7 @@ export const layer: Layer.Layer<Agent, never, HermesClient> = Layer.effect(
 
         return outcome(run)
       }),
-      steerTurn: Effect.fn("Agent.steerTurn")(({ key, transcript }) => {
+      steerTurn: Effect.fn("Hermes.steerTurn")(({ key, transcript }) => {
         const runId = runs.get(key)
 
         if (runId === undefined) return Effect.succeed("NotRunning" as const)
@@ -83,7 +83,7 @@ export const layer: Layer.Layer<Agent, never, HermesClient> = Layer.effect(
           unavailable
         )
       }),
-      sessionOp: Effect.fn("Agent.sessionOp")(function*(op) {
+      sessionOp: Effect.fn("Hermes.sessionOp")(function*(op) {
         if (op !== "new") {
           return yield* new NotSupported({ message: "The Hermes API server can't compact a session." })
         }
@@ -96,27 +96,21 @@ export const layer: Layer.Layer<Agent, never, HermesClient> = Layer.effect(
   })
 )
 
-/* oxlint-disable anti-slop-effect/no-manual-tagged-construction -- TurnOutcome is a plain TypeScript union
-   with no constructors; this goes once it is a Schema.TaggedUnion. */
+const { Completed, NeedsApproval, Failed } = TurnOutcome.cases
+
 const outcome = (run: SettledRun): TurnOutcome => {
   switch (run.status) {
     case "completed":
-      return {
-        _tag: "Completed",
-        agentSessionId: run.session_id,
-        watchText: run.output,
-        pendingSteer: run.pending_steer
-      }
+      return Completed.make({ agentSessionId: run.session_id, watchText: run.output, pendingSteer: run.pending_steer })
     case "waiting_for_approval":
-      return { _tag: "NeedsApproval", agentSessionId: run.session_id, message: run.approval.description }
+      return NeedsApproval.make({ agentSessionId: run.session_id, message: run.approval.description })
     case "failed":
-      return { _tag: "Failed", code: "agent_failed", message: run.error }
+      return Failed.make({ code: "agent_failed", message: run.error })
     case "interrupted":
-      return { _tag: "Failed", code: "interrupted", message: run.error }
+      return Failed.make({ code: "interrupted", message: run.error })
     case "cancelled":
-      return { _tag: "Failed", code: "interrupted", message: "The run was stopped in Hermes." }
+      return Failed.make({ code: "interrupted", message: "The run was stopped in Hermes." })
   }
 }
-/* oxlint-enable anti-slop-effect/no-manual-tagged-construction */
 
 const unavailable = Effect.mapError((e: { readonly message: string }) => new AgentUnavailable({ message: e.message }))

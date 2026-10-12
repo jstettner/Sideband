@@ -17,15 +17,33 @@
         "vitest": "catalog:",
       },
     },
+    "packages/agents": {
+      "name": "@sideband/agents",
+      "version": "0.0.0",
+      "dependencies": {
+        "@sideband/protocol": "workspace:*",
+      },
+      "devDependencies": {
+        "@effect/vitest": "catalog:",
+        "effect": "catalog:",
+        "vitest": "catalog:",
+      },
+      "peerDependencies": {
+        "effect": "catalog:",
+      },
+    },
     "packages/backend-cloudflare": {
       "name": "@sideband/backend-cloudflare",
       "version": "0.0.0",
       "dependencies": {
         "@sideband/protocol": "workspace:*",
+        "@sideband/transcription": "workspace:*",
         "effect": "catalog:",
       },
       "devDependencies": {
         "@cloudflare/workers-types": "catalog:",
+        "@effect/vitest": "catalog:",
+        "vitest": "catalog:",
         "wrangler": "catalog:",
       },
     },
@@ -47,11 +65,24 @@
       "version": "0.0.0",
       "dependencies": {
         "@effect/platform-bun": "catalog:",
+        "@sideband/agents": "workspace:*",
         "@sideband/protocol": "workspace:*",
         "effect": "catalog:",
       },
       "devDependencies": {
         "@types/bun": "catalog:",
+      },
+    },
+    "packages/transcription": {
+      "name": "@sideband/transcription",
+      "version": "0.0.0",
+      "devDependencies": {
+        "@effect/vitest": "catalog:",
+        "effect": "catalog:",
+        "vitest": "catalog:",
+      },
+      "peerDependencies": {
+        "effect": "catalog:",
       },
     },
   },
@@ -334,11 +365,15 @@
 
     "@rolldown/pluginutils": ["@rolldown/pluginutils@1.0.1", "", {}, "sha512-2j9bGt5Jh8hj+vPtgzPtl72j0yRxHAyumoo6TNfAjsLB04UtpSvPbPcDcBMxz7n+9CYB0c1GxQFxYRg2jimqGw=="],
 
+    "@sideband/agents": ["@sideband/agents@workspace:packages/agents"],
+
     "@sideband/backend-cloudflare": ["@sideband/backend-cloudflare@workspace:packages/backend-cloudflare"],
 
     "@sideband/protocol": ["@sideband/protocol@workspace:packages/protocol"],
 
     "@sideband/runner": ["@sideband/runner@workspace:packages/runner"],
+
+    "@sideband/transcription": ["@sideband/transcription@workspace:packages/transcription"],
 
     "@sindresorhus/is": ["@sindresorhus/is@7.2.0", "", {}, "sha512-P1Cz1dWaFfR4IR+U13mqqiGsLFf1KbayybWwdd2vfctdV6hDpUkgCY0nKOLLTMSoRd/jJNjtbqzf13K8DCCXQw=="],
 
