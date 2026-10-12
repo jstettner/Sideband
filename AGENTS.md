@@ -48,6 +48,8 @@ The backend (`packages/backend-cloudflare`) is an Alchemy stack (`alchemy.run.ts
   Durable Object's SQLite is migrated by the object itself when it activates (`Relay/Migrations.ts`), because
   every object has its own database. A migration is editable until it reaches `main`; after that it is
   forward-only (`Migrator` records ids without a checksum).
+- **Files are named for what they declare:** a Worker in `<Name>Worker.ts`, a Durable Object in `<Name>DO.ts`
+  (`scripts/check-file-names.ts`, part of `bun run lint`).
 
 ## Comments and docs
 

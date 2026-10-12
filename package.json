@@ -28,7 +28,7 @@
     "reference:sync": "bun scripts/sync-reference.ts --force",
     "check": "tsc -b",
     "test": "vitest run",
-    "lint": "oxlint && dprint check && bun run openapi:check",
+    "lint": "oxlint && dprint check && bun run openapi:check && bun scripts/check-file-names.ts",
     "format": "dprint fmt",
     "dev": "bun packages/backend-cloudflare/src/scripts/dev.ts",
     "openapi": "bun packages/protocol/src/scripts/genOpenapi.ts",
