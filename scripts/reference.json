@@ -2,5 +2,18 @@
   "reference/effect": {
     "url": "https://github.com/Effect-TS/effect.git",
     "ref": "effect@{catalog:effect}"
+  },
+  "reference/alchemy": {
+    "url": "https://github.com/alchemy-run/alchemy.git",
+    "ref": "v{catalog:alchemy}",
+    "sparse": [
+      "/*",
+      "!/*/",
+      "/packages/alchemy/",
+      "!/packages/alchemy/src/AWS/",
+      "!/packages/alchemy/src/GCP/",
+      "/examples/",
+      "/website/src/content/docs/"
+    ]
   }
 }

@@ -55,15 +55,15 @@ Commit messages follow [Conventional Commits 1.0.0](https://www.conventionalcomm
 
 ## Reference source (`reference/`)
 
-`reference/effect` is a read-only clone of upstream source, kept for reading. It is gitignored (only
-`reference/.gitkeep` is committed) and materialized by `bun install` through `scripts/sync-reference.ts`, from the
-manifest in `scripts/reference.json`.
+`reference/effect` and `reference/alchemy` are read-only clones of upstream source, kept for reading. They are
+gitignored (only `reference/.gitkeep` is committed) and materialized by `bun install` through
+`scripts/sync-reference.ts`, from the manifest in `scripts/reference.json`.
 
-- **Never edit it and never import from it.** Nothing builds against it; we build against the npm packages pinned
-  in the root `package.json` catalog. Every tool's config excludes `reference/`.
-- **If it is missing or stale,** run `bun run reference:sync`.
-- **Bump it through the pin, never by hand.** `reference/effect` follows the catalog (`effect@{catalog:effect}`),
-  so changing the catalog version and running `bun install` moves it. Before bumping a pin, check
-  `docs/upstream.md` for workarounds the new version lets you remove.
-- **Its own agent instructions don't apply here.** The `AGENTS.md`, `CLAUDE.md`, `.agents/`, and `skills/` inside
-  `reference/` describe that project's workflow (pnpm, its CI), not this repo's.
+- **Never edit them and never import from them.** Nothing builds against them; we build against the npm packages
+  pinned in the root `package.json` catalog. Every tool's config excludes `reference/`.
+- **If one is missing or stale,** run `bun run reference:sync`.
+- **Bump them through the pins, never by hand.** They follow the catalog (`effect@{catalog:effect}`,
+  `v{catalog:alchemy}`), so changing the catalog version and running `bun install` moves them. Before bumping a
+  pin, check `docs/upstream.md` for workarounds the new version lets you remove.
+- **Their own agent instructions don't apply here.** The `AGENTS.md`, `CLAUDE.md`, `.agents/`, and `skills/` inside
+  `reference/` describe those projects' workflows (pnpm, their CI), not this repo's.
