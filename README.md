@@ -63,7 +63,7 @@ Under `CI`, the sync is skipped.
 Local config is never committed. Copy the `*.example` files:
 
 - `packages/backend-cloudflare/.env.example` (the tokens and Aqua key `bun run dev` binds)
-- `.env.prod.example` (the same for prod, read by `bun run deploy`)
+- `packages/backend-cloudflare/.env.prod.example` (the same for prod, read by `bun run deploy`)
 - `packages/runner/.env.example` (the runner's settings; `bun run runner:install` copies them)
 - `watch/Config/Local.xcconfig.example`
 
@@ -121,8 +121,8 @@ To deploy prod:
    Pick Sideband's account when Cloudflare asks, and check the `accountId` that `show` prints. Run the Alchemy
    CLI from that package, where it is installed: from the repo root, `bunx` fetches a separate copy that can't
    load its `@effect/platform-bun` peer. Profiles live in `~/.alchemy/`, so they work from any checkout.
-2. Copy `.env.prod.example` to `.env.prod` and fill in the tokens the watch and the runner use, and the Aqua
-   key. The Worker binds each as a secret on every deploy.
+2. Copy `packages/backend-cloudflare/.env.prod.example` to `.env.prod` beside it, and fill in the tokens the
+   watch and the runner use, and the Aqua key. The Worker binds each as a secret on every deploy.
 3. `bun run deploy`. It shows the plan and asks before applying it.
 
 The prod Worker's script is `sideband`, so its URL is `https://sideband.<subdomain>.workers.dev`. The Relay
