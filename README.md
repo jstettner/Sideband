@@ -32,8 +32,8 @@ and how a turn moves through the relay.
 
 ## Development
 
-Requirements: [Bun](https://bun.sh), [Node](https://nodejs.org) 22+ (Vitest runs on it), Xcode,
-[XcodeGen](https://github.com/yonaskolb/XcodeGen).
+Requirements: [Bun](https://bun.sh) at the `packageManager` version in `package.json` (`bun upgrade`),
+[Node](https://nodejs.org) 22+ (Vitest runs on it), Xcode, [XcodeGen](https://github.com/yonaskolb/XcodeGen).
 
 ```sh
 bun install       # installs, patches TypeScript with @effect/tsgo, clones reference/, and installs git hooks
@@ -64,8 +64,36 @@ Local config is never committed. Copy the `*.example` files:
 
 - `packages/backend-cloudflare/.env.example` (the tokens and Aqua key `bun run dev` binds)
 - `.env.prod.example` (the same for prod, read by `bun run plan` and `bun run deploy`)
-- `packages/runner/.env.example`, `packages/runner/launchd/com.sideband.runner.plist.example`
+- `packages/runner/.env.example` (the runner's settings; `bun run runner:install` copies them)
 - `watch/Config/Local.xcconfig.example`
+
+## The runner
+
+The runner runs on the agent's Mac as a launchd agent. From the repo, with `packages/runner/.env` filled in:
+
+```sh
+bun run runner:install           # build, then install (or reinstall) and start the agent
+sideband-runner status           # loaded? running? last exit code, installed version
+sideband-runner logs -f          # follow its log
+sideband-runner restart
+sideband-runner uninstall        # --purge also deletes its settings and log
+```
+
+`install` checks the settings before touching anything, so a broken configuration never becomes a crash loop.
+Everything lives at stable paths, so moving or rebuilding the repo can't break the agent:
+
+| What     | Where                                              |
+| -------- | -------------------------------------------------- |
+| binary   | `~/.local/bin/sideband-runner` (a copy)            |
+| settings | `~/.config/sideband/runner.env` (mode 0600)        |
+| log      | `~/Library/Logs/sideband/runner.log`               |
+| agent    | `~/Library/LaunchAgents/com.sideband.runner.plist` |
+
+Put `~/.local/bin` on your `PATH` for the `sideband-runner` commands. The first `install` copies
+`packages/runner/.env` to the settings file; after that, edit the settings file and
+`sideband-runner restart`. launchd restarts the runner after a crash but not after a clean exit, which means
+another runner replaced it. In the repo, `bun run --cwd packages/runner start` runs it in the foreground with
+`packages/runner/.env`.
 
 ## Stages and deploying
 

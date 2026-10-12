@@ -33,6 +33,7 @@
     "dev": "bun packages/backend-cloudflare/src/scripts/dev.ts",
     "plan": "bun run --cwd packages/backend-cloudflare plan",
     "deploy": "bun run --cwd packages/backend-cloudflare deploy",
+    "runner:install": "bun run --cwd packages/runner agent:install",
     "openapi": "bun packages/protocol/src/scripts/genOpenapi.ts",
     "openapi:check": "bun packages/protocol/src/scripts/genOpenapi.ts --check"
   },

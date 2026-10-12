@@ -42,7 +42,8 @@ language service flags the ones that aren't. Code logs with `Effect.log*`, never
 - `@sideband/agents`: the agents a runner can drive: the `Agent` service, each adapter, and their contract.
 - `@sideband/backend-cloudflare`: the Cloudflare host: the Worker, the Relay Durable Object, and the Alchemy
   stack. It owns every binding.
-- `@sideband/runner`: the Bun host next to the agent: the relay connection and the executor.
+- `@sideband/runner`: the Bun host next to the agent: the relay connection, the executor, and the
+  `sideband-runner` command that installs it as a launchd agent.
 - `watch/`: the Swift app. It depends only on the protocol.
 
 `protocol`, `transcription`, and `agents` are platform-free: `types: []`, so a Node, Bun, or Workers import fails
@@ -53,7 +54,7 @@ language service flags the ones that aren't. Code logs with `Effect.log*`, never
 Ask: would this code run unchanged on another host (Node, Bun, another backend, a test)?
 
 - **Yes:** it goes in a platform-free package, or in a platform-free module of a host package when only that
-  host uses it so far (`Relay/Lifecycle.ts`, `Relay/Store.ts`).
+  host uses it so far (`Relay/Lifecycle.ts`, `Relay/Store.ts`, `Launchd/Plist.ts`).
   - A decision is a **pure function** from values to values: the relay's steps (`Lifecycle.submit`,
     `Lifecycle.hello`), `Lifecycle.turnState`, `Lifecycle.classifyFrame`.
   - Storage is **plain functions over `SqlClient`** (`Store.ts`), not a repository service.
@@ -65,10 +66,12 @@ Ask: would this code run unchanged on another host (Node, Bun, another backend, 
 
 - Use `Context.Service` for a capability with more than one backend (`Transcription`, `Agent`) and for what code
   reads from its context. If Effect already has an interface for it (`HttpClient`, `SqlClient`, `Socket`,
-  `Clock`, `FileSystem`), use Effect's and provide it from the host; don't wrap it.
+  `Clock`, `FileSystem`, `ChildProcessSpawner`), use Effect's and provide it from the host; don't wrap it.
 - The interface (tag, methods, domain errors as `Schema.TaggedError`) lives in the lowest package that needs
   it. Each implementation is a layer in the lowest package that can import what it needs.
 - Each host has one composition root, `src/Layers.ts`, the only place that chooses a backend.
+- A narrow service of our own wraps a tool Effect has no interface for, so its callers are tested with a
+  recording fake (`Launchd`, over `launchctl`).
 - Shape methods by what callers need. Values crossing an interface are plain schema types; errors are the
   service's own, never a driver's.
 - Every implementation passes the service's contract suite in its package's `testing` export
