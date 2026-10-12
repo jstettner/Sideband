@@ -278,3 +278,13 @@ test(
     expect(yield* closeCode(url, [hello(99, "future")])).toBe(4002)
   })
 )
+
+test(
+  "a hello too large to keep with the socket is closed with 1008, and the relay stays up",
+  Effect.gen(function*() {
+    const url = yield* workerUrl
+
+    expect(yield* closeCode(url, [hello(2, "x".repeat(20_000))])).toBe(1008)
+    expect((yield* Test.getWhenReady(new URL("/healthz", url).toString())).status).toBe(200)
+  })
+)

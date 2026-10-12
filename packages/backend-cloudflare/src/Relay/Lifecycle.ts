@@ -215,6 +215,14 @@ export class OpNotSupported extends Schema.TaggedError<OpNotSupported>()("OpNotS
 /** The session op failed at the agent, or the runner didn't answer in time. */
 export class OpFailed extends Schema.TaggedError<OpFailed>()("OpFailed", { message: Schema.String }) {}
 
+/**
+ * The relay's storage failed. The event's writes roll back and its commands never run, so nothing was sent or
+ * answered on its account.
+ */
+export class StorageFailed extends Schema.TaggedError<StorageFailed>()("StorageFailed", {
+  message: Schema.String
+}) {}
+
 const offline = () => new AgentOffline({ message: "The agent is offline. Nothing was run." })
 
 // Step output

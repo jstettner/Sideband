@@ -8,6 +8,7 @@ import { matches } from "./Auth.ts"
 
 export const CONNECT_PATH = "/v1/runner/connect"
 
+// Encoding a protocol error built here can only fail if it breaks its own schema: a bug, so a defect.
 const unauthorized = HttpServerResponse.schemaJson(Errors.Unauthorized)
 
 const invalid = HttpServerResponse.schemaJson(Errors.InvalidRequest)
@@ -32,7 +33,7 @@ export const route = (relays: Cloudflare.DurableObject<RelayDO>, runnerToken: Re
             retryable: false
           }),
           { status: 401 }
-        )
+        ).pipe(Effect.orDie)
       }
 
       if (request.method !== "GET" || request.headers["upgrade"]?.toLowerCase() !== "websocket") {
@@ -43,9 +44,9 @@ export const route = (relays: Cloudflare.DurableObject<RelayDO>, runnerToken: Re
             retryable: false
           }),
           { status: 400 }
-        )
+        ).pipe(Effect.orDie)
       }
 
       return yield* relays.getByName(OWNER).fetch(request)
-    }).pipe(Effect.orDie, Effect.withSpan("Runner.connect"))
+    }).pipe(Effect.withSpan("Runner.connect"))
   )

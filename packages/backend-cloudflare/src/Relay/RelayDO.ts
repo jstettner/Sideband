@@ -17,7 +17,7 @@ import * as Alchemy from "alchemy"
 import * as Cloudflare from "alchemy/Cloudflare"
 import { Clock, Deferred, Effect, Layer, Option, Schema } from "effect"
 import { HttpServerRequest, HttpServerResponse } from "effect/http"
-import { SqlClient } from "effect/sql"
+import { SqlClient, type SqlError } from "effect/sql"
 import { JsonLogs } from "../Layers.ts"
 import * as Lifecycle from "./Lifecycle.ts"
 import * as Migrations from "./Migrations.ts"
@@ -32,19 +32,27 @@ export class RelayDO extends Cloudflare.DurableObject<RelayDO, {
     turn: Lifecycle.SubmitTurn
   ) => Effect.Effect<
     typeof Turn.TurnState.Encoded,
-    Lifecycle.AgentOffline | Lifecycle.SessionBusy | Lifecycle.IdempotencyConflict
+    Lifecycle.AgentOffline | Lifecycle.SessionBusy | Lifecycle.IdempotencyConflict | Lifecycle.StorageFailed
   >
-  readonly get: (key: Common.IdempotencyKey) => Effect.Effect<typeof Turn.TurnState.Encoded, Lifecycle.TurnNotFound>
-  readonly status: (session: Common.SessionName) => Effect.Effect<typeof Status.Status.Encoded>
+  readonly get: (
+    key: Common.IdempotencyKey
+  ) => Effect.Effect<typeof Turn.TurnState.Encoded, Lifecycle.TurnNotFound | Lifecycle.StorageFailed>
+  readonly status: (
+    session: Common.SessionName
+  ) => Effect.Effect<typeof Status.Status.Encoded, Lifecycle.StorageFailed>
   readonly sessionOp: (
     session: Common.SessionName,
     op: Runner.SessionOp["op"]
   ) => Effect.Effect<
     typeof Status.SessionState.Encoded,
-    Lifecycle.AgentOffline | Lifecycle.SessionBusy | Lifecycle.OpNotSupported | Lifecycle.OpFailed
+    | Lifecycle.AgentOffline
+    | Lifecycle.SessionBusy
+    | Lifecycle.OpNotSupported
+    | Lifecycle.OpFailed
+    | Lifecycle.StorageFailed
   >
   /** `"ok"` once this object's SQLite is migrated to the newest bundled migration. */
-  readonly ping: () => Effect.Effect<"ok">
+  readonly ping: () => Effect.Effect<"ok", Lifecycle.StorageFailed>
 }>()("Relay", {
   errors: [
     Lifecycle.AgentOffline,
@@ -52,7 +60,8 @@ export class RelayDO extends Cloudflare.DurableObject<RelayDO, {
     Lifecycle.IdempotencyConflict,
     Lifecycle.TurnNotFound,
     Lifecycle.OpNotSupported,
-    Lifecycle.OpFailed
+    Lifecycle.OpFailed,
+    Lifecycle.StorageFailed
   ]
 }) {}
 
@@ -62,6 +71,58 @@ const OPEN = 1
 const encodeMessage = Schema.encodeEffect(Schema.fromJsonString(Runner.RelayMessage))
 
 const now = Effect.map(Clock.currentTimeMillis, Lifecycle.EpochMillis.make)
+
+/**
+ * Close code for a runner frame the relay couldn't save. A standard one (internal error): the runner
+ * reconnects, and its `hello` re-sends or expires what that frame was about.
+ */
+export const CLOSE_STORAGE_FAILED = 1011
+
+/** Close code for a `hello` the relay can't keep with the socket (policy violation: it's too large). */
+export const CLOSE_HELLO_REJECTED = 1008
+
+/**
+ * A storage failure is an error the caller sees (`StorageFailed`), not a defect. A row of ours that doesn't
+ * decode is a defect: the table's checks keep every row to a state `Lifecycle` models.
+ */
+export const storageErrors = <A, R>(
+  effect: Effect.Effect<A, SqlError.SqlError | Schema.SchemaError, R>
+): Effect.Effect<A, Lifecycle.StorageFailed, R> =>
+  effect.pipe(
+    Effect.catchTag("SchemaError", (error) => Effect.die(error)),
+    Effect.mapError((error) => new Lifecycle.StorageFailed({ message: error.message }))
+  )
+
+/**
+ * Runs the event a runner frame causes. If it can't be saved, the socket closes: the runner thinks the frame
+ * arrived, so only its next `hello` can recover it (a lost outcome's turn is re-sent, or expires).
+ */
+export const closeOnStorageFailure = <R>(
+  close: (code: number, reason: string) => Effect.Effect<void>
+) =>
+(effect: Effect.Effect<unknown, Lifecycle.StorageFailed, R>): Effect.Effect<void, never, R> =>
+  effect.pipe(
+    Effect.asVoid,
+    Effect.catchTag("StorageFailed", (error) =>
+      Effect.logError("couldn't save a runner frame; closing the socket", error.message).pipe(
+        Effect.andThen(close(CLOSE_STORAGE_FAILED, "storage failed"))
+      ))
+  )
+
+/** Where a frame goes: the runner's socket. */
+export interface Outbound {
+  readonly send: (frame: string) => void
+}
+
+/**
+ * Sends `frame` to the runner. A socket that closed in the meantime is not an error: the event's writes are
+ * saved, so the turn is stored as sent and the runner's next `hello` re-sends it (or, for a steer, expires it).
+ */
+export const send = Effect.fnUntraced(function*(socket: Outbound, frame: string) {
+  yield* Effect.try(() => socket.send(frame)).pipe(
+    Effect.catch((error) => Effect.logWarning("the runner socket closed before a send", error.message))
+  )
+})
 
 /** The open `submit` calls holding for one turn's outcome. */
 interface TurnWaiters {
@@ -113,7 +174,7 @@ export const RelayDOLive: Layer.Layer<RelayDO, never, Cloudflare.Worker> = Relay
         yield* Lifecycle.Command.match(command, {
           Send: Effect.fnUntraced(function*({ message }) {
             if (!socket) return yield* Effect.die(`no runner socket to send ${message.type} on`)
-            yield* socket.send(yield* encodeMessage(message).pipe(Effect.orDie))
+            yield* send(socket.ws, yield* encodeMessage(message).pipe(Effect.orDie))
 
             yield* Runner.RelayMessage.match(message, {
               turn: ({ key }) => Effect.logInfo("→ runner").pipe(Effect.annotateLogs({ turn: key })),
@@ -139,10 +200,20 @@ export const RelayDOLive: Layer.Layer<RelayDO, never, Cloudflare.Worker> = Relay
             if (!socket) return yield* Effect.die("no runner socket to attach hello to")
             const attachment = yield* socket.getAttachment(Lifecycle.Attachment).pipe(Effect.orDie)
 
+            // The hello comes from the runner, so it can be too large to keep with the socket. The frames after
+            // it then find the socket closed, and the runner's next connection starts over.
             yield* socket.setAttachment(Lifecycle.Attachment, {
               ...attachment,
               hello: { runner_version: hello.runner_version, agent: hello.agent, protocol: hello.protocol }
-            }).pipe(Effect.orDie)
+            }).pipe(
+              Effect.catchTag(
+                "WebSocketAttachmentError",
+                (error) =>
+                  Effect.logWarning("runner hello rejected: can't keep it with the socket", error.message).pipe(
+                    Effect.andThen(socket.close(CLOSE_HELLO_REJECTED, "hello too large"))
+                  )
+              )
+            )
           }),
           SetAlarm: ({ at }) => Effect.promise(() => state.raw.storage.setAlarm(at))
         })
@@ -173,7 +244,7 @@ export const RelayDOLive: Layer.Layer<RelayDO, never, Cloudflare.Worker> = Relay
           for (const command of result.commands) yield* act(command, socket)
 
           return result.answer
-        }).pipe(withSql, Effect.orDie, Effect.withSpan(`Relay.event.${event._tag}`))
+        }).pipe(withSql, storageErrors, Effect.withSpan(`Relay.event.${event._tag}`))
 
       /** The connected runner that has said hello, if any, and whether its heartbeat is fresh. */
       const runnerSocket = Effect.gen(function*() {
@@ -211,7 +282,7 @@ export const RelayDOLive: Layer.Layer<RelayDO, never, Cloudflare.Worker> = Relay
       })
 
       const storedState = (key: Common.IdempotencyKey) =>
-        Store.turn(key).pipe(Effect.map(Option.map(Lifecycle.turnState)), withSql, Effect.orDie)
+        Store.turn(key).pipe(Effect.map(Option.map(Lifecycle.turnState)), withSql, storageErrors)
 
       /** Waits until `key` resolves, or `Lifecycle.HOLD` passes. */
       const waitForOutcome = (key: Common.IdempotencyKey) =>
@@ -283,12 +354,12 @@ export const RelayDOLive: Layer.Layer<RelayDO, never, Cloudflare.Worker> = Relay
         Store.session(name).pipe(
           Effect.map((row) => Lifecycle.sessionState(name, Option.getOrUndefined(row))),
           withSql,
-          Effect.orDie
+          storageErrors
         )
 
       const status = Effect.fn("Relay.status")(function*(session: Common.SessionName) {
         const live = yield* liveRunner
-        const agentName = yield* Store.agentName.pipe(withSql, Effect.orDie)
+        const agentName = yield* Store.agentName.pipe(withSql, storageErrors)
 
         return Lifecycle.status(agentName, Option.isSome(live), yield* sessionState(session))
       }, handler)
@@ -314,7 +385,7 @@ export const RelayDOLive: Layer.Layer<RelayDO, never, Cloudflare.Worker> = Relay
       )
 
       const ping = Effect.fn("Relay.ping")(function*() {
-        const applied = yield* Migrations.latestApplied.pipe(withSql, Effect.orDie)
+        const applied = yield* Migrations.latestApplied.pipe(withSql, storageErrors)
 
         if (applied !== Migrations.latest) {
           return yield* Effect.die(`SQLite schema not applied: at ${applied}, expected ${Migrations.latest}`)
@@ -410,7 +481,8 @@ export const RelayDOLive: Layer.Layer<RelayDO, never, Cloudflare.Worker> = Relay
                 Effect.andThen(socket.close(Lifecycle.CLOSE_UNSUPPORTED_PROTOCOL, "unsupported_protocol"))
               ),
             Ignore: () => Effect.logWarning("ignoring runner message", message.slice(0, 200)),
-            Message: ({ message: msg }) => onMessage(socket, msg)
+            Message: ({ message: msg }) =>
+              onMessage(socket, msg).pipe(closeOnStorageFailure((code, reason) => socket.close(code, reason)))
           })
         }, handler),
         webSocketClose: Effect.fn("Relay.webSocketClose")(function*(
@@ -431,7 +503,8 @@ export const RelayDOLive: Layer.Layer<RelayDO, never, Cloudflare.Worker> = Relay
         }, handler),
         /** Daily cleanup of old turns. */
         alarm: Effect.fn("Relay.alarm")(function*() {
-          yield* run(Lifecycle.Event.cases.Alarm.make({}), (_, at) => Lifecycle.alarm(at))
+          // An alarm handler that fails is retried by Cloudflare with backoff, which is the recovery wanted.
+          yield* run(Lifecycle.Event.cases.Alarm.make({}), (_, at) => Lifecycle.alarm(at)).pipe(Effect.orDie)
         }, handler)
       }
     })

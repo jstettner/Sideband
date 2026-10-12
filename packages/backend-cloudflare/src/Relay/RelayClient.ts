@@ -38,7 +38,8 @@ const refusals = {
     Effect.fail(new Errors.NotFound({ error: "not_found", message: e.message, retryable: false })),
   OpNotSupported: (e: Lifecycle.OpNotSupported) =>
     Effect.fail(new Errors.NotSupported({ error: "not_supported", message: e.message, retryable: false })),
-  OpFailed: (e: Lifecycle.OpFailed) => Effect.fail(internal(e.message))
+  OpFailed: (e: Lifecycle.OpFailed) => Effect.fail(internal(e.message)),
+  StorageFailed: (e: Lifecycle.StorageFailed) => Effect.fail(internal(`relay storage failed: ${e.message}`))
 }
 
 /**
@@ -73,19 +74,26 @@ export const layer = (relays: Cloudflare.DurableObject<RelayDO>) => {
         Effect.catchTags({
           AgentOffline: refusals.AgentOffline,
           SessionBusy: refusals.SessionBusy,
-          IdempotencyConflict: refusals.IdempotencyConflict
+          IdempotencyConflict: refusals.IdempotencyConflict,
+          StorageFailed: refusals.StorageFailed
         })
       )
 
       return yield* decode(Turn.TurnState)(state)
     }),
     get: Effect.fn("RelayClient.get")(function*(key) {
-      const state = yield* call(relay().get(key)).pipe(Effect.catchTags({ TurnNotFound: refusals.TurnNotFound }))
+      const state = yield* call(relay().get(key)).pipe(
+        Effect.catchTags({ TurnNotFound: refusals.TurnNotFound, StorageFailed: refusals.StorageFailed })
+      )
 
       return yield* decode(Turn.TurnState)(state)
     }),
     status: Effect.fn("RelayClient.status")(function*(session) {
-      return yield* decode(Status.Status)(yield* call(relay().status(session)))
+      const status = yield* call(relay().status(session)).pipe(
+        Effect.catchTags({ StorageFailed: refusals.StorageFailed })
+      )
+
+      return yield* decode(Status.Status)(status)
     }),
     sessionOp: Effect.fn("RelayClient.sessionOp")(function*(session, op) {
       const state = yield* call(relay().sessionOp(session, op)).pipe(
@@ -93,7 +101,8 @@ export const layer = (relays: Cloudflare.DurableObject<RelayDO>) => {
           AgentOffline: refusals.AgentOffline,
           SessionBusy: refusals.SessionBusy,
           OpNotSupported: refusals.OpNotSupported,
-          OpFailed: refusals.OpFailed
+          OpFailed: refusals.OpFailed,
+          StorageFailed: refusals.StorageFailed
         })
       )
 

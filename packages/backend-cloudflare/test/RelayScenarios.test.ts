@@ -67,6 +67,20 @@ describe("relay scenarios", () => {
     expect(relay.turns.get(key("a"))?.state).toBe("sent")
   })
 
+  it("an outcome the relay couldn't save comes back when the runner reconnects within the re-send window", () => {
+    const relay = Harness.make()
+    relay.hello()
+    relay.submit(text("a"))
+    relay.ack(key("a"))
+    // The result frame failed to save: nothing changed, and the relay closed the socket.
+    relay.advance("10 seconds")
+    relay.hello()
+
+    expect(relay.turns.get(key("a"))?.state).toBe("sent")
+    relay.outcome(result("a"))
+    expect(relay.state(key("a"))).toMatchObject({ status: "completed" })
+  })
+
   it("after the re-send window, a reconnect marks the turn unknown and settles its waiters", () => {
     const relay = Harness.make()
     relay.hello()

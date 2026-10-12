@@ -74,11 +74,11 @@ export default SidebandWorker.make(
     const healthz = Effect.gen(function*() {
       const exit = yield* Effect.exit(relays.getByName(RelayClient.OWNER).ping())
 
-      if (Exit.isSuccess(exit)) return yield* health({ ok: true, relay: "ok" })
+      if (Exit.isSuccess(exit)) return yield* health({ ok: true, relay: "ok" }).pipe(Effect.orDie)
       yield* Effect.logError("relay ping failed", exit.cause)
 
-      return yield* health({ ok: false, relay: "error" }, { status: 503 })
-    }).pipe(Effect.orDie, Effect.withSpan("Sideband.healthz"))
+      return yield* health({ ok: false, relay: "error" }, { status: 503 }).pipe(Effect.orDie)
+    }).pipe(Effect.withSpan("Sideband.healthz"))
 
     const fetch = yield* HttpRouter.toHttpEffect(
       Layer.mergeAll(api, Runner.route(relays, runnerToken), HttpRouter.add("GET", "/healthz", healthz))
