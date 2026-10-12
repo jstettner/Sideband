@@ -54,16 +54,41 @@ The pre-commit hook (`.githooks/pre-commit`, enabled by `bun install` through `c
 Editor: install the TypeScript 7 (native) extension. `.vscode/settings.json` points it at the
 workspace TypeScript so Effect diagnostics show up.
 
-`reference/` holds read-only clones of upstream source (currently Effect, at the tag matching the
-root catalog's `effect`) for agents to read; `AGENTS.md` explains them. `bun install` warns and
+`reference/` holds read-only clones of upstream source (Effect and Alchemy, at the tags matching the
+root catalog) for agents to read; `AGENTS.md` explains them. `bun install` warns and
 carries on if it can't reach GitHub to sync them; `bun run reference:sync` retries and fails loudly.
 Under `CI`, the sync is skipped.
 
 Local config is never committed. Copy the `*.example` files:
 
 - `packages/backend-cloudflare/.env.example` (the tokens and Aqua key `bun run dev` binds)
+- `.env.prod.example` (the same for prod, read by `bun run plan` and `bun run deploy`)
 - `packages/runner/.env.example`, `packages/runner/launchd/com.sideband.runner.plist.example`
 - `watch/Config/Local.xcconfig.example`
+
+## Stages and deploying
+
+The backend is an [Alchemy](https://alchemy.run) stack (`packages/backend-cloudflare/alchemy.run.ts`) with
+three kinds of stage:
+
+| Stage        | What                             | State                                    |
+| ------------ | -------------------------------- | ---------------------------------------- |
+| `dev_$USER`  | `bun run dev`: local workerd     | `.alchemy/` in the package, on your disk |
+| `test_$USER` | the Workers tests: local workerd | `.alchemy/` in the package, on your disk |
+| `prod`       | the only deployed stage          | `Cloudflare.state()`, in your account    |
+
+There is no staging stage. Any other stage fails before anything is planned.
+
+To deploy prod:
+
+1. Connect Alchemy to the Cloudflare account once: `bunx alchemy profile edit --add Cloudflare` in
+   `packages/backend-cloudflare`.
+2. Copy `.env.prod.example` to `.env.prod` and fill in the tokens the watch and the runner use, and the Aqua
+   key. The Worker binds each as a secret on every deploy.
+3. `bun run plan`, then `bun run deploy`.
+
+The prod Worker's script is `sideband`, so its URL is `https://sideband.<subdomain>.workers.dev`. The Relay
+migrates its own SQLite when it activates; a deploy needs no migration step.
 
 ## License
 
