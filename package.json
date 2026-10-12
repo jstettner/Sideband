@@ -30,6 +30,7 @@
     "test": "vitest run",
     "lint": "oxlint && dprint check && bun run openapi:check",
     "format": "dprint fmt",
+    "dev": "bun packages/backend-cloudflare/src/scripts/dev.ts",
     "openapi": "bun packages/protocol/src/scripts/genOpenapi.ts",
     "openapi:check": "bun packages/protocol/src/scripts/genOpenapi.ts --check"
   },

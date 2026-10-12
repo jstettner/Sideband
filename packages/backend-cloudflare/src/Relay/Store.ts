@@ -1,145 +1,124 @@
-/* oxlint-disable -- Replaced by SQL functions over Effect's SqlClient. */
-import { Schema } from "effect"
+/**
+ * The Relay's SQLite: the rows `Lifecycle.read` loads, and one `save` of the rows a step writes. Plain
+ * functions over `SqlClient`, so nothing here knows it runs in a Durable Object; the schema is
+ * `Migrations.ts`. Timestamps are epoch milliseconds.
+ */
+import { Effect, Option, Schema } from "effect"
+import { SqlClient, type SqlError, SqlSchema } from "effect/sql"
 import { SessionRow, type Source, TurnRow, type Writes } from "./Lifecycle.ts"
 
-/**
- * The relay's SQLite storage: the rows `Lifecycle` reads and the writes its steps produce. Everything that
- * must survive hibernation lives here; only `Relay.ts` uses it. Timestamps are epoch milliseconds.
- */
-
-/**
- * Schema changes, applied in order. `schema_version` records how many have run, so each runs
- * once per object. (Durable Objects don't allow `PRAGMA user_version`.) Append only; never edit
- * one that has shipped.
- */
-const migrations: ReadonlyArray<string> = [
-  // 1: turns and sessions. IF NOT EXISTS: the first deploy created these before versioning.
-  `CREATE TABLE IF NOT EXISTS turns (
-     key            TEXT PRIMARY KEY,
-     session        TEXT NOT NULL,
-     payload_hash   TEXT NOT NULL,
-     transcript     TEXT NOT NULL,
-     transcript_raw TEXT,
-     state          TEXT NOT NULL,
-     outcome_json   TEXT,
-     created_at     INTEGER NOT NULL,
-     updated_at     INTEGER NOT NULL
-   );
-   CREATE INDEX IF NOT EXISTS turns_state ON turns (state);
-   CREATE TABLE IF NOT EXISTS sessions (
-     name             TEXT PRIMARY KEY,
-     agent_session_id TEXT,
-     active_key       TEXT,
-     context_used     INTEGER,
-     context_limit    INTEGER,
-     last_activity    INTEGER
-   );`,
-  // 2: steering
-  `ALTER TABLE turns ADD COLUMN steer_into TEXT;
-   CREATE INDEX turns_steer_into ON turns (steer_into);`
-]
-
-/** `storage.kv` key: the agent behind the last runner that said hello, for status while offline. */
+/** `relay_meta` key: the agent behind the last runner that said hello, for status while offline. */
 const AGENT_NAME = "agent_name"
 
-const decodeTurn = Schema.decodeUnknownSync(TurnRow)
-const encodeTurn = Schema.encodeSync(TurnRow)
-const decodeSession = Schema.decodeUnknownSync(SessionRow)
+export const turn = Effect.fn("Store.turn")(function*(key: string) {
+  const sql = yield* SqlClient.SqlClient
 
-export class Store implements Source {
-  private readonly storage: DurableObjectStorage
-  private readonly sql: SqlStorage
-  private readonly kv: SyncKvStorage
+  return yield* SqlSchema.findOneOption({
+    Request: Schema.String,
+    Result: TurnRow,
+    execute: (k) => sql`SELECT * FROM turns WHERE key = ${k}`
+  })(key)
+})
 
-  constructor(storage: DurableObjectStorage) {
-    this.storage = storage
-    this.sql = storage.sql
-    this.kv = storage.kv
-    storage.transactionSync(() => {
-      this.sql.exec("CREATE TABLE IF NOT EXISTS schema_version (version INTEGER NOT NULL)")
-      const version = this.sql.exec<{ version: number }>("SELECT version FROM schema_version").toArray()[0]?.version ??
-        0
-      for (const migration of migrations.slice(version)) this.sql.exec(migration)
-      this.sql.exec("DELETE FROM schema_version")
-      this.sql.exec("INSERT INTO schema_version (version) VALUES (?)", migrations.length)
-    })
-  }
+/** Turns still waiting for an outcome, oldest first. */
+export const unresolvedTurns = Effect.gen(function*() {
+  const sql = yield* SqlClient.SqlClient
 
-  agentName(): string | undefined {
-    return this.kv.get<string>(AGENT_NAME)
-  }
+  return yield* SqlSchema.findAll({
+    Request: Schema.Void,
+    Result: TurnRow,
+    execute: () => sql`SELECT * FROM turns WHERE state IN ('pending', 'sent', 'acked') ORDER BY created_at`
+  })(undefined)
+}).pipe(Effect.withSpan("Store.unresolvedTurns"))
 
-  turn(key: string): TurnRow | undefined {
-    const row = this.sql.exec("SELECT * FROM turns WHERE key = ?", key).toArray()[0]
-    return row === undefined ? undefined : decodeTurn(row)
-  }
+/** Open steers into the turn `key`, oldest first. */
+export const unresolvedSteersInto = Effect.fn("Store.unresolvedSteersInto")(function*(key: string) {
+  const sql = yield* SqlClient.SqlClient
 
-  /** Turns still waiting for an outcome, oldest first. */
-  unresolvedTurns(): ReadonlyArray<TurnRow> {
-    return this.sql.exec("SELECT * FROM turns WHERE state IN ('pending', 'sent', 'acked') ORDER BY created_at")
-      .toArray()
-      .map((row) => decodeTurn(row))
-  }
+  return yield* SqlSchema.findAll({
+    Request: Schema.String,
+    Result: TurnRow,
+    execute: (k) =>
+      sql`SELECT * FROM turns WHERE steer_into = ${k} AND state IN ('pending', 'sent', 'acked') ORDER BY created_at`
+  })(key)
+})
 
-  unresolvedSteersInto(key: string): ReadonlyArray<TurnRow> {
-    return this.sql.exec(
-      "SELECT * FROM turns WHERE steer_into = ? AND state IN ('pending', 'sent', 'acked') ORDER BY created_at",
-      key
-    ).toArray().map((row) => decodeTurn(row))
-  }
+export const session = Effect.fn("Store.session")(function*(name: string) {
+  const sql = yield* SqlClient.SqlClient
 
-  session(name: string): SessionRow | undefined {
-    const row = this.sql.exec("SELECT * FROM sessions WHERE name = ?", name).toArray()[0]
-    return row === undefined ? undefined : decodeSession(row)
-  }
+  return yield* SqlSchema.findOneOption({
+    Request: Schema.String,
+    Result: SessionRow,
+    execute: (n) => sql`SELECT * FROM sessions WHERE name = ${n}`
+  })(name)
+})
 
-  /** Writes a step's rows in one transaction. Returns how many turns were pruned. */
-  save(writes: Writes): number {
-    return this.storage.transactionSync(() => {
-      for (const turn of writes.turns) {
-        const row = encodeTurn(turn)
-        this.sql.exec(
-          `INSERT INTO turns (key, session, payload_hash, transcript, transcript_raw, state, outcome_json, steer_into,
-                              created_at, updated_at)
-           VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
-           ON CONFLICT (key) DO UPDATE SET
-             session = excluded.session, payload_hash = excluded.payload_hash, transcript = excluded.transcript,
-             transcript_raw = excluded.transcript_raw, state = excluded.state, outcome_json = excluded.outcome_json,
-             steer_into = excluded.steer_into, created_at = excluded.created_at, updated_at = excluded.updated_at`,
-          row.key,
-          row.session,
-          row.payload_hash,
-          row.transcript,
-          row.transcript_raw,
-          row.state,
-          row.outcome_json,
-          row.steer_into,
-          row.created_at,
-          row.updated_at
-        )
-      }
-      for (const session of writes.sessions) {
-        this.sql.exec(
-          `INSERT INTO sessions (name, agent_session_id, active_key, context_used, context_limit, last_activity)
-           VALUES (?, ?, ?, ?, ?, ?)
-           ON CONFLICT (name) DO UPDATE SET
-             agent_session_id = excluded.agent_session_id, active_key = excluded.active_key,
-             context_used = excluded.context_used, context_limit = excluded.context_limit,
-             last_activity = excluded.last_activity`,
-          session.name,
-          session.agent_session_id,
-          session.active_key,
-          session.context_used,
-          session.context_limit,
-          session.last_activity
-        )
-      }
-      if (writes.agentName !== undefined) this.kv.put(AGENT_NAME, writes.agentName)
-      if (writes.pruneBefore === undefined) return 0
-      return this.sql.exec(
-        "DELETE FROM turns WHERE state IN ('done', 'unknown') AND updated_at < ?",
-        writes.pruneBefore
-      ).rowsWritten
-    })
-  }
+/** The rows `Lifecycle.read` loads, from this object's SQLite. */
+export const source: Source<SqlError.SqlError | Schema.SchemaError, SqlClient.SqlClient> = {
+  turn,
+  session,
+  unresolvedTurns,
+  unresolvedSteersInto
 }
+
+export const agentName = Effect.gen(function*() {
+  const sql = yield* SqlClient.SqlClient
+
+  const row = yield* SqlSchema.findOneOption({
+    Request: Schema.String,
+    Result: Schema.Struct({ value: Schema.String }),
+    execute: (k) => sql`SELECT value FROM relay_meta WHERE key = ${k}`
+  })(AGENT_NAME)
+
+  return Option.getOrUndefined(Option.map(row, ({ value }) => value))
+}).pipe(Effect.withSpan("Store.agentName"))
+
+/** Writes a step's rows (whole-row upserts). Returns how many turns were pruned. */
+export const save = Effect.fn("Store.save")(function*(writes: Writes) {
+  const sql = yield* SqlClient.SqlClient
+
+  for (const row of writes.turns) {
+    const encoded = yield* Schema.encodeEffect(TurnRow)(row)
+
+    yield* sql`
+      INSERT INTO turns ${sql.insert(encoded)}
+      ON CONFLICT (key) DO UPDATE SET
+        session = excluded.session,
+        payload_hash = excluded.payload_hash,
+        transcript = excluded.transcript,
+        transcript_raw = excluded.transcript_raw,
+        state = excluded.state,
+        outcome_json = excluded.outcome_json,
+        steer_into = excluded.steer_into,
+        created_at = excluded.created_at,
+        updated_at = excluded.updated_at
+    `
+  }
+
+  for (const row of writes.sessions) {
+    yield* sql`
+      INSERT INTO sessions ${sql.insert(row)}
+      ON CONFLICT (name) DO UPDATE SET
+        agent_session_id = excluded.agent_session_id,
+        active_key = excluded.active_key,
+        context_used = excluded.context_used,
+        context_limit = excluded.context_limit,
+        last_activity = excluded.last_activity
+    `
+  }
+
+  if (writes.agentName !== undefined) {
+    yield* sql`
+      INSERT INTO relay_meta (key, value) VALUES (${AGENT_NAME}, ${writes.agentName})
+      ON CONFLICT (key) DO UPDATE SET value = excluded.value
+    `
+  }
+
+  if (writes.pruneBefore === undefined) return 0
+
+  const pruned = yield* sql`
+    DELETE FROM turns WHERE state IN ('done', 'unknown') AND updated_at < ${writes.pruneBefore} RETURNING key
+  `
+
+  return pruned.length
+})

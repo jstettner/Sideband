@@ -11,7 +11,7 @@ import { RelayClient } from "../Relay/RelayClient.ts"
  */
 const payloadHash = (payload: Uint8Array | { readonly text: string }) =>
   Effect.promise(async () => {
-    const bytes = "text" in payload ? new TextEncoder().encode(`text:${payload.text}`) : payload
+    const bytes = "text" in payload ? new TextEncoder().encode(`text:${payload.text}`) : Uint8Array.from(payload)
     const digest = await crypto.subtle.digest("SHA-256", bytes)
 
     return [...new Uint8Array(digest)].map((b) => b.toString(16).padStart(2, "0")).join("")

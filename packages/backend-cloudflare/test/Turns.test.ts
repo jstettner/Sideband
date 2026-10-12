@@ -2,7 +2,7 @@ import { describe, expect, it } from "@effect/vitest"
 import { Api } from "@sideband/protocol"
 import type { Transcription } from "@sideband/transcription"
 import * as FakeTranscription from "@sideband/transcription/testing"
-import { Effect, Layer } from "effect"
+import { Effect, Layer, Redacted } from "effect"
 import { HttpRouter, HttpServer } from "effect/http"
 import { HttpApiBuilder } from "effect/http-api"
 import * as Auth from "../src/Api/Auth.ts"
@@ -70,7 +70,7 @@ const api = Effect.fnUntraced(function*(transcription: Layer.Layer<Transcription
       HttpRouter.toWebHandler(
         HttpApiBuilder.layer(Api.SidebandApi).pipe(
           Layer.provide([Turns.layer, Status.layer]),
-          Layer.provide([Auth.layer("watch-token"), transcription, relay]),
+          Layer.provide([Auth.layer(Redacted.make("watch-token")), transcription, relay]),
           Layer.provide(HttpServer.layerServices)
         ),
         { disableLogger: true }
