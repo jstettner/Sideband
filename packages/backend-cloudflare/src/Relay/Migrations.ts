@@ -13,80 +13,37 @@ import { Migrator, SqlClient, SqlSchema } from "effect/sql"
 export const TABLE = "effect_sql_migrations"
 
 /**
- * The schema objects had before `Migrator`: `schema_version` counted how many of these had run. Kept
- * verbatim so `0001_relay` brings an object at any of those versions to the same schema.
- */
-const legacy: ReadonlyArray<Effect.Effect<void, unknown, SqlClient.SqlClient>> = [
-  Effect.gen(function*() {
-    const sql = yield* SqlClient.SqlClient
-    yield* sql`
-      CREATE TABLE IF NOT EXISTS turns (
-        key            TEXT PRIMARY KEY,
-        session        TEXT NOT NULL,
-        payload_hash   TEXT NOT NULL,
-        transcript     TEXT NOT NULL,
-        transcript_raw TEXT,
-        state          TEXT NOT NULL,
-        outcome_json   TEXT,
-        created_at     INTEGER NOT NULL,
-        updated_at     INTEGER NOT NULL
-      )
-    `
-    yield* sql`CREATE INDEX IF NOT EXISTS turns_state ON turns (state)`
-    yield* sql`
-      CREATE TABLE IF NOT EXISTS sessions (
-        name             TEXT PRIMARY KEY,
-        agent_session_id TEXT,
-        active_key       TEXT,
-        context_used     INTEGER,
-        context_limit    INTEGER,
-        last_activity    INTEGER
-      )
-    `
-  }),
-  // Steering.
-  Effect.gen(function*() {
-    const sql = yield* SqlClient.SqlClient
-    yield* sql`ALTER TABLE turns ADD COLUMN steer_into TEXT`
-    yield* sql`CREATE INDEX turns_steer_into ON turns (steer_into)`
-  })
-]
-
-/** How many {@link legacy} steps an object ran, or `undefined` for an object created after them. */
-const legacyVersion = Effect.gen(function*() {
-  const sql = yield* SqlClient.SqlClient
-
-  const table = yield* SqlSchema.findOneOption({
-    Request: Schema.Void,
-    Result: Schema.Struct({ name: Schema.String }),
-    execute: () => sql`SELECT name FROM sqlite_master WHERE type = 'table' AND name = 'schema_version'`
-  })(undefined)
-
-  if (Option.isNone(table)) return undefined
-
-  const row = yield* SqlSchema.findOneOption({
-    Request: Schema.Void,
-    Result: Schema.Struct({ version: Schema.Int }),
-    execute: () => sql`SELECT version FROM schema_version`
-  })(undefined)
-
-  return Option.match(row, { onNone: () => 0, onSome: ({ version }) => version })
-})
-
-/**
- * `turns` (one row per idempotency key), `sessions` (one row per session name), and `relay_meta`. An object
- * created before `Migrator` keeps its rows: the legacy steps it hadn't run yet run now. Its `schema_version`
- * then says every legacy step ran, so the code that came before `Migrator` still starts against it (it runs
- * nothing and ignores the tables it doesn't know).
+ * `turns` (one row per idempotency key), `sessions` (one row per session name), and `relay_meta`. The checks
+ * keep a row to one of the states `Lifecycle` models: only a `done` turn has an outcome.
  */
 const relay = Effect.gen(function*() {
   const sql = yield* SqlClient.SqlClient
-  const version = yield* legacyVersion
-
-  for (const step of legacy.slice(version ?? 0)) yield* step
-
-  if (version !== undefined) yield* sql`UPDATE schema_version SET version = ${legacy.length}`
-
+  yield* sql`
+    CREATE TABLE turns (
+      key            TEXT PRIMARY KEY,
+      session        TEXT NOT NULL,
+      payload_hash   TEXT NOT NULL,
+      transcript     TEXT NOT NULL,
+      transcript_raw TEXT,
+      state          TEXT NOT NULL CHECK (state IN ('sent', 'acked', 'done', 'unknown')),
+      outcome_json   TEXT CHECK ((state = 'done') = (outcome_json IS NOT NULL)),
+      steer_into     TEXT,
+      created_at     INTEGER NOT NULL,
+      updated_at     INTEGER NOT NULL
+    )
+  `
+  yield* sql`CREATE INDEX turns_state ON turns (state)`
+  yield* sql`CREATE INDEX turns_steer_into ON turns (steer_into)`
+  yield* sql`
+    CREATE TABLE sessions (
+      name             TEXT PRIMARY KEY,
+      agent_session_id TEXT,
+      active_key       TEXT,
+      context_json     TEXT,
+      last_activity    INTEGER
+    )
+  `
+  // One row per key; currently only `agent_name`, the agent behind the last runner that said hello.
   yield* sql`CREATE TABLE relay_meta (key TEXT PRIMARY KEY, value TEXT NOT NULL)`
 })
 

@@ -1,5 +1,5 @@
 import { Agent } from "@sideband/agents"
-import { Runner } from "@sideband/protocol"
+import { type Common, Runner } from "@sideband/protocol"
 import { Clock, Duration, Effect, Exit, Redacted, Schedule, Schema } from "effect"
 import * as Socket from "effect/socket/Socket"
 import pkg from "../../package.json" with { type: "json" }
@@ -51,7 +51,7 @@ const closedBy = (opened: boolean) => (error: Socket.SocketError) =>
 /** An outgoing frame, and the turn it settles (for `hello.in_flight`). */
 interface Pending {
   readonly frame: string
-  readonly settles: string | undefined
+  readonly settles: Common.IdempotencyKey | undefined
 }
 
 /**
@@ -199,7 +199,7 @@ function connectUrl(backend: URL): URL {
   return url
 }
 
-function outcomeKey(message: Runner.RunnerMessage): string | undefined {
+function outcomeKey(message: Runner.RunnerMessage): Common.IdempotencyKey | undefined {
   return Runner.RunnerMessage.isAnyOf(["result", "needs_approval", "turn_failed", "merged"])(message)
     ? message.key
     : undefined

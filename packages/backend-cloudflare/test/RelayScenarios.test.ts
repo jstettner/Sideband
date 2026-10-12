@@ -1,15 +1,17 @@
 import { describe, expect, it } from "@effect/vitest"
+import { Common } from "@sideband/protocol"
+import { Result } from "effect"
 import * as Lifecycle from "../src/Relay/Lifecycle.ts"
 import * as Harness from "./Harness.ts"
 
-const { key, result, SESSION, text } = Harness
+const { agentSession, answerTag, key, opId, result, SESSION, text } = Harness
 
 describe("relay scenarios", () => {
   it("submit → ack → result; replaying the key afterwards answers the same state", () => {
     const relay = Harness.make()
     relay.hello()
 
-    expect(relay.submit(text("a"))._tag).toBe("Hold")
+    expect(answerTag(relay.submit(text("a")))).toBe("Hold")
     expect(relay.state(key("a")).status).toBe("running")
     relay.ack(key("a"))
     relay.outcome(result("a"))
@@ -17,7 +19,7 @@ describe("relay scenarios", () => {
     const completed = relay.state(key("a"))
     expect(completed).toMatchObject({ status: "completed", watch_text: "answer a" })
     expect(relay.submit(text("a"))).toEqual(
-      Lifecycle.SubmitAnswer.cases.Replay.make({ row: relay.turns.get(key("a"))! })
+      Result.succeed(Lifecycle.Accepted.cases.Replay.make({ row: relay.turns.get(key("a"))! }))
     )
     expect(relay.state(key("a"))).toEqual(completed)
     expect(relay.sessions.get(SESSION)).toMatchObject({ active_key: null, agent_session_id: "agent-session-1" })
@@ -65,7 +67,7 @@ describe("relay scenarios", () => {
     expect(relay.turns.get(key("a"))?.state).toBe("sent")
   })
 
-  it("after the re-send window, a reconnect marks the turn unknown and wakes its waiters", () => {
+  it("after the re-send window, a reconnect marks the turn unknown and settles its waiters", () => {
     const relay = Harness.make()
     relay.hello()
     relay.submit(text("a"))
@@ -73,7 +75,7 @@ describe("relay scenarios", () => {
     relay.hello()
 
     expect(relay.state(key("a")).status).toBe("unknown")
-    expect(relay.commands().at(-1)).toEqual(Lifecycle.Command.cases.Wake.make({ key: key("a") }))
+    expect(relay.commands().at(-1)).toEqual(Lifecycle.Command.cases.TurnSettled.make({ key: key("a") }))
     expect(relay.sessions.get(SESSION)?.active_key).toBeNull()
   })
 
@@ -105,7 +107,7 @@ describe("relay scenarios", () => {
     relay.hello([], 1)
     relay.submit(text("a"), v1)
 
-    expect(relay.submit(text("b"), v1)._tag).toBe("Busy")
+    expect(answerTag(relay.submit(text("b"), v1))).toBe("SessionBusy")
     expect(relay.turns.has(key("b"))).toBe(false)
   })
 
@@ -116,26 +118,26 @@ describe("relay scenarios", () => {
     relay.outcome(
       Lifecycle.Outcome.cases.result.make({
         key: key("a"),
-        agent_session_id: "s1",
+        agent_session_id: agentSession("s1"),
         watch_text: "hi",
         context: { used_tokens: 5, limit_tokens: 9 }
       })
     )
 
     const live = relay.check()
-    const op = { session: SESSION, op: "new", opId: "op-1" } as const
+    const op = { session: SESSION, op: "new", opId: opId("op-1") } as const
 
     const asked = relay.run(
       Lifecycle.Event.cases.SessionOp.make({ ...op, runner: live }),
       (slice) => Lifecycle.sessionOp(slice, op, live)
     )
 
-    expect(asked.answer._tag).toBe("Wait")
+    expect(answerTag(asked.answer)).toBe("Ok")
 
     const answer = {
       session: SESSION,
-      opId: "op-1",
-      outcome: { type: "session_op_result", op_id: "op-1", agent_session_id: "s2" }
+      opId: opId("op-1"),
+      outcome: { type: "session_op_result", op_id: opId("op-1"), agent_session_id: agentSession("s2") }
     } as const
 
     relay.run(
@@ -156,7 +158,7 @@ describe("relay scenarios", () => {
     relay.hello()
     relay.submit(text("a"))
     relay.outcome(result("a"))
-    relay.submit({ ...text("b"), session: "other" })
+    relay.submit({ ...text("b"), session: Common.SessionName.make("other") })
     relay.advance("8 days")
     relay.run(Lifecycle.Event.cases.Alarm.make({}), (_, now) => Lifecycle.alarm(now))
 

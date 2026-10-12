@@ -8,15 +8,14 @@
  * steps interleave. Save comes before act: if the object dies in between, the socket dies with it, and
  * the runner's next `hello` re-sends what it must.
  *
- * Its logical id, `"Relay"`, is permanent: it is the Durable Object class name, the one the objects
- * created before Alchemy have too.
+ * Its logical id, `"Relay"`, is permanent: it is the Durable Object class name.
  */
 import type * as cf from "@cloudflare/workers-types"
 import * as SqliteClient from "@effect/sql-sqlite-do/SqliteClient"
-import { Runner, type Status, type Turn } from "@sideband/protocol"
+import { type Common, Runner, type Status, type Turn } from "@sideband/protocol"
 import * as Alchemy from "alchemy"
 import * as Cloudflare from "alchemy/Cloudflare"
-import { Clock, Deferred, Duration, Effect, Layer, Option, Schema } from "effect"
+import { Clock, Deferred, Effect, Layer, Option, Schema } from "effect"
 import { HttpServerRequest, HttpServerResponse } from "effect/http"
 import { SqlClient } from "effect/sql"
 import { JsonLogs } from "../Layers.ts"
@@ -35,10 +34,10 @@ export class RelayDO extends Cloudflare.DurableObject<RelayDO, {
     typeof Turn.TurnState.Encoded,
     Lifecycle.AgentOffline | Lifecycle.SessionBusy | Lifecycle.IdempotencyConflict
   >
-  readonly get: (key: string) => Effect.Effect<typeof Turn.TurnState.Encoded, Lifecycle.TurnNotFound>
-  readonly status: (session: string) => Effect.Effect<typeof Status.Status.Encoded>
+  readonly get: (key: Common.IdempotencyKey) => Effect.Effect<typeof Turn.TurnState.Encoded, Lifecycle.TurnNotFound>
+  readonly status: (session: Common.SessionName) => Effect.Effect<typeof Status.Status.Encoded>
   readonly sessionOp: (
-    session: string,
+    session: Common.SessionName,
     op: Runner.SessionOp["op"]
   ) => Effect.Effect<
     typeof Status.SessionState.Encoded,
@@ -57,29 +56,23 @@ export class RelayDO extends Cloudflare.DurableObject<RelayDO, {
   ]
 }) {}
 
-const OFFLINE = "The agent is offline. Nothing was run."
-
 /** `WebSocket.OPEN`. */
 const OPEN = 1
 
 const encodeMessage = Schema.encodeEffect(Schema.fromJsonString(Runner.RelayMessage))
 
-type SubmitResult = Effect.Effect<
-  typeof Turn.TurnState.Encoded,
-  Lifecycle.AgentOffline | Lifecycle.SessionBusy | Lifecycle.IdempotencyConflict,
-  Alchemy.RuntimeContext
->
+const now = Effect.map(Clock.currentTimeMillis, Lifecycle.EpochMillis.make)
 
-type SessionOpResult = Effect.Effect<
-  typeof Status.SessionState.Encoded,
-  Lifecycle.AgentOffline | Lifecycle.SessionBusy | Lifecycle.OpNotSupported | Lifecycle.OpFailed,
-  Alchemy.RuntimeContext
->
-
-/** The open `submit` calls waiting on one turn's outcome. */
+/** The open `submit` calls holding for one turn's outcome. */
 interface TurnWaiters {
-  readonly woken: Deferred.Deferred<void>
+  readonly settled: Deferred.Deferred<void>
   count: number
+}
+
+/** An open `sessionOp` call waiting for the runner. */
+interface OpWaiter {
+  readonly session: Common.SessionName
+  readonly answered: Deferred.Deferred<Lifecycle.SessionOpOutcome>
 }
 
 export const RelayDOLive: Layer.Layer<RelayDO, never, Cloudflare.Worker> = RelayDO.make(
@@ -101,25 +94,20 @@ export const RelayDOLive: Layer.Layer<RelayDO, never, Cloudflare.Worker> = Relay
         effect.pipe(Effect.provideService(Alchemy.RuntimeContext, runtime), Effect.provide(JsonLogs))
 
       const sqlite = yield* Layer.build(SqliteClient.layer({ storage: state.raw.storage }))
-      const sql = SqlClient.SqlClient.pipe(Effect.provideContext(sqlite))
-      yield* Migrations.run.pipe(Effect.provideContext(sqlite), Effect.orDie)
+      const withSql = Effect.provideContext(sqlite)
+      yield* Migrations.run.pipe(withSql, Effect.orDie)
       // Heartbeats are answered without waking the object.
       yield* state.setWebSocketAutoResponse(
         new WebSocketRequestResponsePair(Runner.HEARTBEAT_PING, Runner.HEARTBEAT_PONG)
       )
 
       if ((yield* Effect.promise(() => state.raw.storage.getAlarm())) === null) {
-        const now = yield* Clock.currentTimeMillis
-        yield* Effect.promise(() => state.raw.storage.setAlarm(now + Duration.toMillis(Lifecycle.CLEANUP_INTERVAL)))
+        const at = Lifecycle.after(yield* now, Lifecycle.CLEANUP_INTERVAL)
+        yield* Effect.promise(() => state.raw.storage.setAlarm(at))
       }
 
-      const turnWaiters = new Map<string, TurnWaiters>()
-
-      /** Open `sessionOp` calls waiting for the runner, by op id. */
-      const opWaiters = new Map<
-        string,
-        { readonly session: string; readonly answered: Deferred.Deferred<Lifecycle.SessionOpReply> }
-      >()
+      const turnWaiters = new Map<Common.IdempotencyKey, TurnWaiters>()
+      const opWaiters = new Map<Runner.OpId, OpWaiter>()
 
       const act = Effect.fnUntraced(function*(command: Lifecycle.Command, socket: Cloudflare.WebSocket | undefined) {
         yield* Lifecycle.Command.match(command, {
@@ -134,18 +122,18 @@ export const RelayDOLive: Layer.Layer<RelayDO, never, Cloudflare.Worker> = Relay
               session_op: ({ op, session }) => Effect.logInfo(`${op} → runner`).pipe(Effect.annotateLogs({ session }))
             })
           }),
-          Wake: ({ key }) =>
+          TurnSettled: ({ key }) =>
             Effect.suspend(() => {
               const waiters = turnWaiters.get(key)
               turnWaiters.delete(key)
 
-              return waiters ? Deferred.succeed(waiters.woken, undefined) : Effect.void
+              return waiters ? Deferred.succeed(waiters.settled, undefined) : Effect.void
             }),
-          Answer: ({ opId, reply }) =>
+          Answer: ({ opId, outcome }) =>
             Effect.suspend(() => {
               const waiter = opWaiters.get(opId)
 
-              return waiter ? Deferred.succeed(waiter.answered, reply) : Effect.void
+              return waiter ? Deferred.succeed(waiter.answered, outcome) : Effect.void
             }),
           Attach: Effect.fnUntraced(function*({ hello }) {
             if (!socket) return yield* Effect.die("no runner socket to attach hello to")
@@ -160,35 +148,36 @@ export const RelayDOLive: Layer.Layer<RelayDO, never, Cloudflare.Worker> = Relay
         })
       })
 
-      /** Read → step → save in one transaction, then act. */
-      const run = Effect.fnUntraced(function*<A>(
+      /** Read → step → save in one transaction, then act. One span per event, named by its tag. */
+      const run = <A>(
         event: Lifecycle.Event,
-        step: (slice: Lifecycle.Slice, now: number) => Lifecycle.Step<A>,
+        step: (slice: Lifecycle.Slice, now: Lifecycle.EpochMillis) => Lifecycle.Step<A>,
         socket?: Cloudflare.WebSocket
-      ) {
-        const client = yield* sql
-        const now = yield* Clock.currentTimeMillis
+      ) =>
+        Effect.gen(function*() {
+          const client = yield* SqlClient.SqlClient
+          const at = yield* now
 
-        const { result, pruned } = yield* client.withTransaction(Effect.gen(function*() {
-          const stepped = step(yield* Lifecycle.read(Store.source, event), now)
+          const { result, pruned } = yield* client.withTransaction(Effect.gen(function*() {
+            const stepped = step(yield* Lifecycle.read(Store.source, event), at)
 
-          return { result: stepped, pruned: yield* Store.save(stepped.writes) }
-        })).pipe(Effect.provideContext(sqlite), Effect.orDie)
+            return { result: stepped, pruned: yield* Store.save(stepped.writes) }
+          }))
 
-        for (const row of result.writes.turns) {
-          if (row.state === "unknown") yield* Effect.logInfo("→ unknown").pipe(Effect.annotateLogs({ turn: row.key }))
-        }
+          for (const row of result.writes.turns) {
+            if (row.state === "unknown") yield* Effect.logInfo("→ unknown").pipe(Effect.annotateLogs({ turn: row.key }))
+          }
 
-        if (pruned > 0) yield* Effect.logInfo(`pruned ${pruned} old turns`)
+          if (pruned > 0) yield* Effect.logInfo(`pruned ${pruned} old turns`)
 
-        for (const command of result.commands) yield* act(command, socket)
+          for (const command of result.commands) yield* act(command, socket)
 
-        return result.answer
-      })
+          return result.answer
+        }).pipe(withSql, Effect.orDie, Effect.withSpan(`Relay.event.${event._tag}`))
 
       /** The connected runner that has said hello, if any, and whether its heartbeat is fresh. */
       const runnerSocket = Effect.gen(function*() {
-        const now = yield* Clock.currentTimeMillis
+        const at = yield* now
 
         for (const socket of yield* state.getWebSockets()) {
           if (socket.ws.readyState !== OPEN) continue
@@ -198,8 +187,8 @@ export const RelayDOLive: Layer.Layer<RelayDO, never, Cloudflare.Worker> = Relay
           const lastPing = yield* state.getWebSocketAutoResponseTimestamp(socket.ws)
 
           const view: Lifecycle.RunnerView = {
-            online: Lifecycle.isOnline(attachment.value.connectedAt, lastPing?.getTime(), now),
-            protocol: attachment.value.hello.protocol ?? 1
+            online: Lifecycle.isOnline(attachment.value.connectedAt, lastPing?.getTime(), at),
+            protocol: attachment.value.hello.protocol
           }
 
           return Option.some({ socket, view })
@@ -215,29 +204,26 @@ export const RelayDOLive: Layer.Layer<RelayDO, never, Cloudflare.Worker> = Relay
 
         const runner = yield* run(
           Lifecycle.Event.cases.Check.make({ runner: view }),
-          (slice, now) => Lifecycle.check(slice, view, now)
+          (slice, at) => Lifecycle.check(slice, view, at)
         )
 
         return Option.flatMap(found, ({ socket }) => runner ? Option.some({ socket, runner }) : Option.none())
       })
 
-      const storedState = Effect.fnUntraced(function*(key: string) {
-        const row = yield* Store.turn(key).pipe(Effect.provideContext(sqlite), Effect.orDie)
-
-        return Option.match(row, { onNone: () => undefined, onSome: Lifecycle.turnState })
-      })
+      const storedState = (key: Common.IdempotencyKey) =>
+        Store.turn(key).pipe(Effect.map(Option.map(Lifecycle.turnState)), withSql, Effect.orDie)
 
       /** Waits until `key` resolves, or `Lifecycle.HOLD` passes. */
-      const waitForOutcome = (key: string) =>
+      const waitForOutcome = (key: Common.IdempotencyKey) =>
         Effect.acquireUseRelease(
           Effect.sync(() => {
-            const waiters = turnWaiters.get(key) ?? { woken: Deferred.makeUnsafe<void>(), count: 0 }
+            const waiters = turnWaiters.get(key) ?? { settled: Deferred.makeUnsafe<void>(), count: 0 }
             waiters.count++
             turnWaiters.set(key, waiters)
 
             return waiters
           }),
-          (waiters) => Deferred.await(waiters.woken).pipe(Effect.timeoutOption(Lifecycle.HOLD)),
+          (waiters) => Deferred.await(waiters.settled).pipe(Effect.timeoutOption(Lifecycle.HOLD)),
           (waiters) =>
             Effect.sync(() => {
               waiters.count--
@@ -246,20 +232,16 @@ export const RelayDOLive: Layer.Layer<RelayDO, never, Cloudflare.Worker> = Relay
             })
         )
 
-      /** The runner's answer to session op `opId`, or `NoAnswer` after `Lifecycle.SESSION_OP_TIMEOUT`. */
-      const waitForAnswer = (opId: string, session: string) =>
+      /** The runner's answer to session op `opId`, or `None` after `Lifecycle.SESSION_OP_TIMEOUT`. */
+      const waitForAnswer = (opId: Runner.OpId, session: Common.SessionName) =>
         Effect.acquireUseRelease(
           Effect.sync(() => {
-            const answered = Deferred.makeUnsafe<Lifecycle.SessionOpReply>()
+            const answered = Deferred.makeUnsafe<Lifecycle.SessionOpOutcome>()
             opWaiters.set(opId, { session, answered })
 
             return answered
           }),
-          (answered) =>
-            Deferred.await(answered).pipe(
-              Effect.timeoutOption(Lifecycle.SESSION_OP_TIMEOUT),
-              Effect.map(Option.getOrElse(() => Lifecycle.sessionOpReply(undefined)))
-            ),
+          (answered) => Deferred.await(answered).pipe(Effect.timeoutOption(Lifecycle.SESSION_OP_TIMEOUT)),
           () => Effect.sync(() => opWaiters.delete(opId))
         )
 
@@ -269,63 +251,52 @@ export const RelayDOLive: Layer.Layer<RelayDO, never, Cloudflare.Worker> = Relay
 
           const answer = yield* run(
             Lifecycle.Event.cases.Submit.make({ turn, runner: live?.runner }),
-            (slice, now) => Lifecycle.submit(slice, turn, live?.runner, now),
+            (slice, at) => Lifecycle.submit(slice, turn, live?.runner, at),
             live?.socket
           )
 
-          return yield* Lifecycle.SubmitAnswer.match(answer, {
-            Replay: ({ row }): SubmitResult => Effect.succeed(Lifecycle.turnState(row)),
-            Conflict: (): SubmitResult =>
-              Effect.fail(
-                new Lifecycle.IdempotencyConflict({
-                  message: "This Idempotency-Key was already used for a different command."
-                })
-              ),
-            Offline: (): SubmitResult => Effect.fail(new Lifecycle.AgentOffline({ message: OFFLINE })),
-            Busy: (): SubmitResult =>
-              Effect.fail(
-                new Lifecycle.SessionBusy({
-                  message: "The agent is still working on the previous command. Nothing was run."
-                })
-              ),
-            Hold: ({ key }): SubmitResult =>
-              waitForOutcome(key).pipe(
-                Effect.andThen(storedState(key)),
-                Effect.filterOrElse((stored) => stored !== undefined, () => Effect.die(`turn ${key} vanished`))
-              )
+          const accepted = yield* Effect.fromResult(answer)
+
+          if (Lifecycle.Accepted.guards.Replay(accepted)) return Lifecycle.turnState(accepted.row)
+          yield* waitForOutcome(accepted.key)
+          const stored = yield* storedState(accepted.key)
+
+          return yield* Option.match(stored, {
+            onNone: () => Effect.die(`turn ${accepted.key} vanished while held`),
+            onSome: Effect.succeed
           })
         },
         (effect, turn) => Effect.annotateLogs(effect, { turn: turn.key, session: turn.session }),
         handler
       )
 
-      const get = Effect.fn("Relay.get")(function*(key: string) {
+      const get = Effect.fn("Relay.get")(function*(key: Common.IdempotencyKey) {
         yield* liveRunner
-        const stored = yield* storedState(key)
 
-        if (stored === undefined) return yield* new Lifecycle.TurnNotFound({ message: `No turn ${key}.` })
-
-        return stored
+        return yield* Option.match(yield* storedState(key), {
+          onNone: () => Effect.fail(new Lifecycle.TurnNotFound({ message: `No turn ${key}.` })),
+          onSome: Effect.succeed
+        })
       }, handler)
 
-      const sessionState = (name: string) =>
+      const sessionState = (name: Common.SessionName) =>
         Store.session(name).pipe(
           Effect.map((row) => Lifecycle.sessionState(name, Option.getOrUndefined(row))),
-          Effect.provideContext(sqlite),
+          withSql,
           Effect.orDie
         )
 
-      const status = Effect.fn("Relay.status")(function*(session: string) {
+      const status = Effect.fn("Relay.status")(function*(session: Common.SessionName) {
         const live = yield* liveRunner
-        const agentName = yield* Store.agentName.pipe(Effect.provideContext(sqlite), Effect.orDie)
+        const agentName = yield* Store.agentName.pipe(withSql, Effect.orDie)
 
         return Lifecycle.status(agentName, Option.isSome(live), yield* sessionState(session))
       }, handler)
 
       const sessionOp = Effect.fn("Relay.sessionOp")(
-        function*(session: string, op: Runner.SessionOp["op"]) {
+        function*(session: Common.SessionName, op: Runner.SessionOp["op"]) {
           const live = Option.getOrUndefined(yield* liveRunner)
-          const opId = crypto.randomUUID()
+          const opId = Runner.OpId.make(crypto.randomUUID())
 
           const answer = yield* run(
             Lifecycle.Event.cases.SessionOp.make({ session, op, opId, runner: live?.runner }),
@@ -333,31 +304,17 @@ export const RelayDOLive: Layer.Layer<RelayDO, never, Cloudflare.Worker> = Relay
             live?.socket
           )
 
-          return yield* Lifecycle.SessionOpAnswer.match(answer, {
-            Offline: (): SessionOpResult => Effect.fail(new Lifecycle.AgentOffline({ message: OFFLINE })),
-            Busy: (): SessionOpResult =>
-              Effect.fail(
-                new Lifecycle.SessionBusy({ message: "The agent is still working on a command in this session." })
-              ),
-            Wait: (): SessionOpResult =>
-              waitForAnswer(opId, session).pipe(
-                Effect.flatMap(Lifecycle.SessionOpReply.match({
-                  Ok: (): SessionOpResult => sessionState(session),
-                  NotSupported: ({ message }): SessionOpResult =>
-                    Effect.fail(new Lifecycle.OpNotSupported({ message })),
-                  Failed: ({ message }): SessionOpResult => Effect.fail(new Lifecycle.OpFailed({ message })),
-                  NoAnswer: (): SessionOpResult =>
-                    Effect.fail(new Lifecycle.OpFailed({ message: "The runner didn't answer." }))
-                }))
-              )
-          })
+          yield* Effect.fromResult(answer)
+          yield* Effect.fromResult(Lifecycle.sessionOpResult(yield* waitForAnswer(opId, session)))
+
+          return yield* sessionState(session)
         },
         (effect, session) => Effect.annotateLogs(effect, { session }),
         handler
       )
 
       const ping = Effect.fn("Relay.ping")(function*() {
-        const applied = yield* Migrations.latestApplied.pipe(Effect.provideContext(sqlite), Effect.orDie)
+        const applied = yield* Migrations.latestApplied.pipe(withSql, Effect.orDie)
 
         if (applied !== Migrations.latest) {
           return yield* Effect.die(`SQLite schema not applied: at ${applied}, expected ${Migrations.latest}`)
@@ -371,14 +328,14 @@ export const RelayDOLive: Layer.Layer<RelayDO, never, Cloudflare.Worker> = Relay
           Effect.logInfo(`← ${result.type}`).pipe(
             Effect.andThen(run(
               Lifecycle.Event.cases.Outcome.make({ outcome: result }),
-              (slice, now) => Lifecycle.outcome(slice, result, now),
+              (slice, at) => Lifecycle.outcome(slice, result, at),
               socket
             )),
             Effect.annotateLogs({ turn: result.key })
           )
 
         // An answer after the op timed out has no one to tell, and is dropped.
-        const sessionOpAnswer = (result: Runner.SessionOpResult | Runner.SessionOpFailed) =>
+        const sessionOpAnswer = (result: Lifecycle.SessionOpOutcome) =>
           Effect.suspend(() => {
             const waiter = opWaiters.get(result.op_id)
 
@@ -387,7 +344,7 @@ export const RelayDOLive: Layer.Layer<RelayDO, never, Cloudflare.Worker> = Relay
 
             return run(
               Lifecycle.Event.cases.SessionOpAnswer.make(answer),
-              (slice, now) => Lifecycle.sessionOpAnswer(slice, answer, now),
+              (slice, at) => Lifecycle.sessionOpAnswer(slice, answer, at),
               socket
             )
           })
@@ -403,12 +360,12 @@ export const RelayDOLive: Layer.Layer<RelayDO, never, Cloudflare.Worker> = Relay
               }),
               Effect.andThen(run(
                 Lifecycle.Event.cases.Hello.make({ hello }),
-                (slice, now) => Lifecycle.hello(slice, hello, now),
+                (slice, at) => Lifecycle.hello(slice, hello, at),
                 socket
               ))
             ),
           ack: ({ key }) =>
-            run(Lifecycle.Event.cases.Ack.make({ key }), (slice, now) => Lifecycle.ack(slice, key, now), socket),
+            run(Lifecycle.Event.cases.Ack.make({ key }), (slice, at) => Lifecycle.ack(slice, key, at), socket),
           result: outcome,
           needs_approval: outcome,
           turn_failed: outcome,
@@ -434,8 +391,7 @@ export const RelayDOLive: Layer.Layer<RelayDO, never, Cloudflare.Worker> = Relay
 
           for (const old of yield* state.getWebSockets()) yield* old.close(Lifecycle.CLOSE_REPLACED, "replaced")
           const [response, socket] = yield* Cloudflare.upgrade()
-          const connectedAt = yield* Clock.currentTimeMillis
-          yield* socket.setAttachment(Lifecycle.Attachment, { connectedAt }).pipe(Effect.orDie)
+          yield* socket.setAttachment(Lifecycle.Attachment, { connectedAt: yield* now }).pipe(Effect.orDie)
           yield* Effect.logInfo("runner connected")
 
           return response
@@ -475,7 +431,7 @@ export const RelayDOLive: Layer.Layer<RelayDO, never, Cloudflare.Worker> = Relay
         }, handler),
         /** Daily cleanup of old turns. */
         alarm: Effect.fn("Relay.alarm")(function*() {
-          yield* run(Lifecycle.Event.cases.Alarm.make({}), (_, now) => Lifecycle.alarm(now))
+          yield* run(Lifecycle.Event.cases.Alarm.make({}), (_, at) => Lifecycle.alarm(at))
         }, handler)
       }
     })

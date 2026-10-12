@@ -1,4 +1,4 @@
-import { Errors, Status, Turn } from "@sideband/protocol"
+import { type Common, Errors, Status, Turn } from "@sideband/protocol"
 import * as Cloudflare from "alchemy/Cloudflare"
 import { Context, Effect, Layer, Schema } from "effect"
 import type * as Lifecycle from "./Lifecycle.ts"
@@ -14,9 +14,9 @@ export class RelayClient extends Context.Service<RelayClient, {
     Turn.TurnState,
     Errors.AgentOffline | Errors.SessionBusy | Errors.IdempotencyConflict | Errors.InternalError
   >
-  readonly get: (key: string) => Effect.Effect<Turn.TurnState, Errors.NotFound | Errors.InternalError>
-  readonly status: (session: string) => Effect.Effect<Status.Status, Errors.InternalError>
-  readonly sessionOp: (session: string, op: "new" | "compact") => Effect.Effect<
+  readonly get: (key: Common.IdempotencyKey) => Effect.Effect<Turn.TurnState, Errors.NotFound | Errors.InternalError>
+  readonly status: (session: Common.SessionName) => Effect.Effect<Status.Status, Errors.InternalError>
+  readonly sessionOp: (session: Common.SessionName, op: "new" | "compact") => Effect.Effect<
     Status.SessionState,
     Errors.AgentOffline | Errors.SessionBusy | Errors.NotSupported | Errors.InternalError
   >

@@ -3,30 +3,36 @@
  * checks the relay's invariants, so every scenario run through it tests them too:
  *
  * 1. A `done` or `unknown` turn never changes again.
- * 2. A session's `active_key` is null or an unresolved turn in that session.
+ * 2. A session's `active_key` is null or an open turn in that session.
  * 3. A steer is sent at most once.
  * 4. A turn is sent again only by `hello`, and never while it is in `in_flight`.
  */
 import { expect } from "@effect/vitest"
-import type { Runner } from "@sideband/protocol"
-import { Duration, Effect, Option } from "effect"
+import { Common, Runner } from "@sideband/protocol"
+import { Duration, Effect, Option, Result } from "effect"
 import * as Lifecycle from "../src/Relay/Lifecycle.ts"
 
 /** A valid idempotency key (16+ characters) named `name`. */
-export const key = (name: string): string => `${name}-turn-0000000000`
+export const key = (name: string): Common.IdempotencyKey => Common.IdempotencyKey.make(`${name}-turn-0000000000`)
 
-export const SESSION = "main"
+export const SESSION = Common.SessionName.make("main")
+
+export const agentSession = (name: string) => Common.AgentSessionId.make(name)
+
+export const opId = (name: string) => Runner.OpId.make(name)
+
+export const millis = (value: number) => Lifecycle.EpochMillis.make(value)
 
 export interface Harness {
-  readonly turns: ReadonlyMap<string, Lifecycle.TurnRow>
-  readonly sessions: ReadonlyMap<string, Lifecycle.SessionRow>
+  readonly turns: ReadonlyMap<Common.IdempotencyKey, Lifecycle.TurnRow>
+  readonly sessions: ReadonlyMap<Common.SessionName, Lifecycle.SessionRow>
   readonly agentName: () => string | undefined
-  readonly now: () => number
+  readonly now: () => Lifecycle.EpochMillis
   readonly advance: (duration: Duration.Input) => void
   /** Runs one event: read its rows, step, save, check the invariants. */
   readonly run: <A>(
     event: Lifecycle.Event,
-    step: (slice: Lifecycle.Slice, now: number) => Lifecycle.Step<A>
+    step: (slice: Lifecycle.Slice, now: Lifecycle.EpochMillis) => Lifecycle.Step<A>
   ) => Lifecycle.Step<A>
   /** Every command so far, in order. */
   readonly commands: () => ReadonlyArray<Lifecycle.Command>
@@ -34,11 +40,11 @@ export interface Harness {
   readonly submit: (turn: Lifecycle.SubmitTurn, runner?: Lifecycle.RunnerView) => Lifecycle.SubmitAnswer
   /** The check every other RPC starts with. */
   readonly check: (runner?: Lifecycle.RunnerView) => Lifecycle.LiveRunner | undefined
-  readonly hello: (inFlight?: ReadonlyArray<string>, protocol?: Runner.Hello["protocol"]) => void
-  readonly ack: (key: string) => void
+  readonly hello: (inFlight?: ReadonlyArray<Common.IdempotencyKey>, protocol?: Runner.Hello["protocol"]) => void
+  readonly ack: (key: Common.IdempotencyKey) => void
   readonly outcome: (outcome: Lifecycle.Outcome) => void
   /** The client-facing state of `key`. */
-  readonly state: (key: string) => ReturnType<typeof Lifecycle.turnState>
+  readonly state: (key: Common.IdempotencyKey) => ReturnType<typeof Lifecycle.turnState>
 }
 
 export const online: Lifecycle.RunnerView = { online: true, protocol: 2 }
@@ -50,35 +56,44 @@ export const text = (name: string, transcript = `say ${name}`): Lifecycle.Submit
   payloadHash: `hash-${transcript}`
 })
 
+/** The tag of a submit's or session op's answer: what it accepted (`Ok` for a session op), or why it refused. */
+export const answerTag = (
+  answer: Result.Result<Lifecycle.Accepted | void, { readonly _tag: string }>
+): string =>
+  Result.match(answer, {
+    onSuccess: (accepted) => accepted?._tag ?? "Ok",
+    onFailure: (refusal) => refusal._tag
+  })
+
 export const make = (): Harness => {
-  const turns = new Map<string, Lifecycle.TurnRow>()
-  const sessions = new Map<string, Lifecycle.SessionRow>()
+  const turns = new Map<Common.IdempotencyKey, Lifecycle.TurnRow>()
+  const sessions = new Map<Common.SessionName, Lifecycle.SessionRow>()
   const commands: Array<Lifecycle.Command> = []
   /** Keys sent as a turn or steer so far. */
-  const sent = new Set<string>()
+  const sent = new Set<Common.IdempotencyKey>()
   let agentName: string | undefined
-  let now = 1_000_000_000_000
+  let now = millis(1_000_000_000_000)
 
-  const unresolved = () =>
-    [...turns.values()].filter((row) => !Lifecycle.isResolved(row)).toSorted((a, b) => a.created_at - b.created_at)
+  const open = () => [...turns.values()].filter(Lifecycle.isOpen).toSorted((a, b) => a.created_at - b.created_at)
 
   const source: Lifecycle.Source<never, never> = {
     turn: (k) => Effect.sync(() => Option.fromUndefinedOr(turns.get(k))),
     session: (name) => Effect.sync(() => Option.fromUndefinedOr(sessions.get(name))),
-    unresolvedTurns: Effect.sync(unresolved),
-    unresolvedSteersInto: (k) => Effect.sync(() => unresolved().filter((row) => row.steer_into === k))
+    openTurns: Effect.sync(open),
+    openSteersInto: (k) => Effect.sync(() => open().filter((row) => row.steer_into === k))
   }
 
-  const checkInvariants = (before: ReadonlyMap<string, Lifecycle.TurnRow>) => {
+  const checkInvariants = (before: ReadonlyMap<Common.IdempotencyKey, Lifecycle.TurnRow>) => {
     for (const [k, row] of before) {
-      if (Lifecycle.isResolved(row) && turns.has(k)) expect(turns.get(k), `resolved turn ${k} changed`).toEqual(row)
+      if (!Lifecycle.isOpen(row) && turns.has(k)) expect(turns.get(k), `resolved turn ${k} changed`).toEqual(row)
     }
 
     for (const session of sessions.values()) {
       if (session.active_key === null) continue
       const active = turns.get(session.active_key)
+
       expect(active, `${session.name}'s active turn`).toBeDefined()
-      expect(active && Lifecycle.isResolved(active), `${session.name}'s active turn is resolved`).toBe(false)
+      expect(active && Lifecycle.isOpen(active), `${session.name}'s active turn is open`).toBe(true)
       expect(active?.session).toBe(session.name)
     }
   }
@@ -101,7 +116,10 @@ export const make = (): Harness => {
     }
   }
 
-  const run = <A>(event: Lifecycle.Event, step: (slice: Lifecycle.Slice, now: number) => Lifecycle.Step<A>) => {
+  const run = <A>(
+    event: Lifecycle.Event,
+    step: (slice: Lifecycle.Slice, now: Lifecycle.EpochMillis) => Lifecycle.Step<A>
+  ) => {
     const before = new Map(turns)
     const result = step(Effect.runSync(Lifecycle.read(source, event)), now)
 
@@ -113,7 +131,7 @@ export const make = (): Harness => {
 
     if (result.writes.pruneBefore !== undefined) {
       for (const [k, row] of turns) {
-        if (Lifecycle.isResolved(row) && row.updated_at < result.writes.pruneBefore) turns.delete(k)
+        if (!Lifecycle.isOpen(row) && row.updated_at < result.writes.pruneBefore) turns.delete(k)
       }
     }
 
@@ -133,7 +151,7 @@ export const make = (): Harness => {
     agentName: () => agentName,
     now: () => now,
     advance: (duration) => {
-      now += Duration.toMillis(Duration.fromInputUnsafe(duration))
+      now = Lifecycle.after(now, Duration.fromInputUnsafe(duration))
     },
     run,
     commands: () => commands,
@@ -178,6 +196,6 @@ export const result = (name: string, agentSessionId = "agent-session-1", watchTe
   Lifecycle.Outcome.cases.result.make({
     type: "result",
     key: key(name),
-    agent_session_id: agentSessionId,
+    agent_session_id: agentSession(agentSessionId),
     watch_text: watchText
   })

@@ -1,13 +1,13 @@
 import { describe, expect, it } from "@effect/vitest"
 import { Agent, Echo } from "@sideband/agents"
-import { Runner } from "@sideband/protocol"
+import { Common, Runner } from "@sideband/protocol"
 import { Clock, ConfigProvider, Context, Effect, Fiber, Latch, Layer, Option, Queue, Schema } from "effect"
 import * as Socket from "effect/socket/Socket"
 import { TestClock } from "effect/testing"
 import * as Connection from "../src/Connection/Connection.ts"
 import { Executor } from "../src/Executor/Executor.ts"
 
-const KEY = "turn-0000000000000001"
+const KEY = Common.IdempotencyKey.make("turn-0000000000000001")
 
 type Listener = (event: Socket.WebSocketEvent) => void
 
@@ -153,7 +153,12 @@ const start = Effect.gen(function*() {
 
 const nextMessage = (relay: RelaySide) => Effect.map(next(relay), decodeRunnerMessage)
 
-const turn: Runner.Turn = { type: "turn", key: KEY, session: "main", transcript: "Deploy it." }
+const turn: Runner.Turn = {
+  type: "turn",
+  key: KEY,
+  session: Common.SessionName.make("main"),
+  transcript: "Deploy it."
+}
 
 describe("Connection", () => {
   it.effect("dials the relay's connect URL with the runner token", () =>

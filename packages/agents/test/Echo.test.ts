@@ -1,4 +1,5 @@
 import { describe, expect, it } from "@effect/vitest"
+import { Common } from "@sideband/protocol"
 import { Effect, Fiber } from "effect"
 import { TestClock } from "effect/testing"
 import { Agent, Echo } from "../src/index.ts"
@@ -6,7 +7,7 @@ import { agentContract } from "../src/testing/index.ts"
 
 agentContract("Echo", Echo.layer({ delayMs: 0 }))
 
-const KEY = "echo-test-turn-0001"
+const KEY = Common.IdempotencyKey.make("echo-test-turn-0001")
 
 describe("Echo with a delay", () => {
   it.effect("adds steers to the answer, except those in the last quarter, which come back as pendingSteer", () =>
@@ -24,7 +25,7 @@ describe("Echo with a delay", () => {
 
       expect(yield* Fiber.join(turn)).toEqual(
         Agent.TurnOutcome.cases.Completed.make({
-          agentSessionId: `echo-${KEY}`,
+          agentSessionId: Common.AgentSessionId.make(`echo-${KEY}`),
           watchText: "count to three\n+ in French",
           pendingSteer: "slowly"
         })

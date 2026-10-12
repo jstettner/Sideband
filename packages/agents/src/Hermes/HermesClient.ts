@@ -1,3 +1,4 @@
+import { Common } from "@sideband/protocol"
 import {
   Config,
   Context,
@@ -37,29 +38,29 @@ export class HermesError extends Schema.TaggedError<HermesError>()("HermesError"
 /** A run that is still going. */
 const PendingRun = Schema.Struct({
   status: Schema.Literals(["queued", "running", "stopping"]),
-  session_id: Schema.String
+  session_id: Common.AgentSessionId
 })
 
 /** A run that won't change any more unless someone acts on it (an approval, a stop). */
 export const SettledRun = Schema.Union([
   Schema.Struct({
     status: Schema.Literal("waiting_for_approval"),
-    session_id: Schema.String,
+    session_id: Common.AgentSessionId,
     approval: Schema.Struct({ description: Schema.String, command: Schema.optional(Schema.String) })
   }),
   Schema.Struct({
     status: Schema.Literal("completed"),
-    session_id: Schema.String,
+    session_id: Common.AgentSessionId,
     output: Schema.String,
     /** Steer text that arrived after the final reply; Hermes dropped it. Absent when there's none. */
     pending_steer: Schema.optional(Schema.String)
   }),
   Schema.Struct({
     status: Schema.Literals(["failed", "interrupted"]),
-    session_id: Schema.String,
+    session_id: Common.AgentSessionId,
     error: Schema.String
   }),
-  Schema.Struct({ status: Schema.Literal("cancelled"), session_id: Schema.String })
+  Schema.Struct({ status: Schema.Literal("cancelled"), session_id: Common.AgentSessionId })
 ])
 
 export type SettledRun = typeof SettledRun.Type
@@ -82,7 +83,7 @@ const RunAccepted = Schema.Struct({ run_id: Schema.String, replayed: Schema.Bool
 const SteerAccepted = Schema.Struct({ accepted: Schema.Literal(true) })
 
 /** `201` from `POST /api/sessions`. */
-const SessionCreated = Schema.Struct({ session: Schema.Struct({ id: Schema.String }) })
+const SessionCreated = Schema.Struct({ session: Schema.Struct({ id: Common.AgentSessionId }) })
 
 /** One frame of `GET /v1/runs/{id}/events`: JSON in `data`, the event name inside it. */
 const RunEvent = Schema.Struct({ event: Schema.String })
@@ -111,11 +112,11 @@ export class HermesClient extends Context.Service<HermesClient, {
    * the original run, or `409 idempotency_key_conflict` if the payload differs.
    */
   readonly createRun: (run: {
-    readonly key: string
+    readonly key: Common.IdempotencyKey
     readonly input: string
     readonly instructions: string
     /** Omitted for a new session; Hermes then uses the run ID as the session ID. */
-    readonly sessionId?: string | undefined
+    readonly sessionId?: Common.AgentSessionId | undefined
   }) => Effect.Effect<{ readonly runId: string; readonly replayed: boolean }, HermesError>
   readonly getRun: (runId: string) => Effect.Effect<Run, HermesError>
   /**
@@ -131,7 +132,7 @@ export class HermesClient extends Context.Service<HermesClient, {
    */
   readonly runEvents: (runId: string) => Stream.Stream<string, HermesError>
   /** Creates an empty session and returns its ID. */
-  readonly createSession: Effect.Effect<string, HermesError>
+  readonly createSession: Effect.Effect<Common.AgentSessionId, HermesError>
 }>()("@sideband/agents/HermesClient") {}
 
 export const layer = (

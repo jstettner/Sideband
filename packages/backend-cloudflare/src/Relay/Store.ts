@@ -3,51 +3,51 @@
  * functions over `SqlClient`, so nothing here knows it runs in a Durable Object; the schema is
  * `Migrations.ts`. Timestamps are epoch milliseconds.
  */
+import { Common } from "@sideband/protocol"
 import { Effect, Option, Schema } from "effect"
 import { SqlClient, type SqlError, SqlSchema } from "effect/sql"
-import { SessionRow, type Source, TurnRow, type Writes } from "./Lifecycle.ts"
+import { OpenTurnRow, SessionRow, type Source, TurnRow, type Writes } from "./Lifecycle.ts"
 
 /** `relay_meta` key: the agent behind the last runner that said hello, for status while offline. */
 const AGENT_NAME = "agent_name"
 
-export const turn = Effect.fn("Store.turn")(function*(key: string) {
+export const turn = Effect.fn("Store.turn")(function*(key: Common.IdempotencyKey) {
   const sql = yield* SqlClient.SqlClient
 
   return yield* SqlSchema.findOneOption({
-    Request: Schema.String,
+    Request: Common.IdempotencyKey,
     Result: TurnRow,
     execute: (k) => sql`SELECT * FROM turns WHERE key = ${k}`
   })(key)
 })
 
 /** Turns still waiting for an outcome, oldest first. */
-export const unresolvedTurns = Effect.gen(function*() {
+export const openTurns = Effect.gen(function*() {
   const sql = yield* SqlClient.SqlClient
 
   return yield* SqlSchema.findAll({
     Request: Schema.Void,
-    Result: TurnRow,
-    execute: () => sql`SELECT * FROM turns WHERE state IN ('pending', 'sent', 'acked') ORDER BY created_at`
+    Result: OpenTurnRow,
+    execute: () => sql`SELECT * FROM turns WHERE state IN ('sent', 'acked') ORDER BY created_at`
   })(undefined)
-}).pipe(Effect.withSpan("Store.unresolvedTurns"))
+}).pipe(Effect.withSpan("Store.openTurns"))
 
 /** Open steers into the turn `key`, oldest first. */
-export const unresolvedSteersInto = Effect.fn("Store.unresolvedSteersInto")(function*(key: string) {
+export const openSteersInto = Effect.fn("Store.openSteersInto")(function*(key: Common.IdempotencyKey) {
   const sql = yield* SqlClient.SqlClient
 
   return yield* SqlSchema.findAll({
-    Request: Schema.String,
-    Result: TurnRow,
-    execute: (k) =>
-      sql`SELECT * FROM turns WHERE steer_into = ${k} AND state IN ('pending', 'sent', 'acked') ORDER BY created_at`
+    Request: Common.IdempotencyKey,
+    Result: OpenTurnRow,
+    execute: (k) => sql`SELECT * FROM turns WHERE steer_into = ${k} AND state IN ('sent', 'acked') ORDER BY created_at`
   })(key)
 })
 
-export const session = Effect.fn("Store.session")(function*(name: string) {
+export const session = Effect.fn("Store.session")(function*(name: Common.SessionName) {
   const sql = yield* SqlClient.SqlClient
 
   return yield* SqlSchema.findOneOption({
-    Request: Schema.String,
+    Request: Common.SessionName,
     Result: SessionRow,
     execute: (n) => sql`SELECT * FROM sessions WHERE name = ${n}`
   })(name)
@@ -57,8 +57,8 @@ export const session = Effect.fn("Store.session")(function*(name: string) {
 export const source: Source<SqlError.SqlError | Schema.SchemaError, SqlClient.SqlClient> = {
   turn,
   session,
-  unresolvedTurns,
-  unresolvedSteersInto
+  openTurns,
+  openSteersInto
 }
 
 export const agentName = Effect.gen(function*() {
@@ -96,13 +96,14 @@ export const save = Effect.fn("Store.save")(function*(writes: Writes) {
   }
 
   for (const row of writes.sessions) {
+    const encoded = yield* Schema.encodeEffect(SessionRow)(row)
+
     yield* sql`
-      INSERT INTO sessions ${sql.insert(row)}
+      INSERT INTO sessions ${sql.insert(encoded)}
       ON CONFLICT (name) DO UPDATE SET
         agent_session_id = excluded.agent_session_id,
         active_key = excluded.active_key,
-        context_used = excluded.context_used,
-        context_limit = excluded.context_limit,
+        context_json = excluded.context_json,
         last_activity = excluded.last_activity
     `
   }
