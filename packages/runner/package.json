@@ -11,7 +11,8 @@
   },
   "scripts": {
     "start": "bun src/main.ts",
-    "build": "bun build src/main.ts --compile --outfile dist/sideband-runner"
+    "build": "bun build src/main.ts --compile --outfile dist/sideband-runner",
+    "agent:install": "bun run build && ./dist/sideband-runner install"
   },
   "dependencies": {
     "@effect/platform-bun": "catalog:",
@@ -20,6 +21,8 @@
     "effect": "catalog:"
   },
   "devDependencies": {
+    "@effect/platform-node": "catalog:",
+    "@effect/vitest": "catalog:",
     "@types/bun": "catalog:"
   }
 }
