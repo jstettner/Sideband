@@ -22,10 +22,13 @@
       "version": "0.0.0",
       "dependencies": {
         "@sideband/protocol": "workspace:*",
+        "@sideband/transcription": "workspace:*",
         "effect": "catalog:",
       },
       "devDependencies": {
         "@cloudflare/workers-types": "catalog:",
+        "@effect/vitest": "catalog:",
+        "vitest": "catalog:",
         "wrangler": "catalog:",
       },
     },
@@ -52,6 +55,18 @@
       },
       "devDependencies": {
         "@types/bun": "catalog:",
+      },
+    },
+    "packages/transcription": {
+      "name": "@sideband/transcription",
+      "version": "0.0.0",
+      "devDependencies": {
+        "@effect/vitest": "catalog:",
+        "effect": "catalog:",
+        "vitest": "catalog:",
+      },
+      "peerDependencies": {
+        "effect": "catalog:",
       },
     },
   },
@@ -339,6 +354,8 @@
     "@sideband/protocol": ["@sideband/protocol@workspace:packages/protocol"],
 
     "@sideband/runner": ["@sideband/runner@workspace:packages/runner"],
+
+    "@sideband/transcription": ["@sideband/transcription@workspace:packages/transcription"],
 
     "@sindresorhus/is": ["@sindresorhus/is@7.2.0", "", {}, "sha512-P1Cz1dWaFfR4IR+U13mqqiGsLFf1KbayybWwdd2vfctdV6hDpUkgCY0nKOLLTMSoRd/jJNjtbqzf13K8DCCXQw=="],
 

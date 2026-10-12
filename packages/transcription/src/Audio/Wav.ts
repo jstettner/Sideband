@@ -3,6 +3,7 @@
  * `data`, nothing else). Apple's recorders add padding chunks (`FLLR`) and use the
  * WAVE_FORMAT_EXTENSIBLE header, which strict consumers reject. Copies bytes; no decoding.
  */
+import { Result, Schema } from "effect"
 
 const PCM = 0x0001
 
@@ -10,15 +11,18 @@ const EXTENSIBLE = 0xfffe
 
 export const SAMPLE_RATE = 16_000
 
-export class InvalidWav extends Error {}
+/** The input isn't a 16 kHz mono PCM16 WAV file. */
+export class InvalidWav extends Schema.TaggedError<InvalidWav>()("InvalidWav", {
+  message: Schema.String
+}) {}
 
-export function canonicalWav(input: Uint8Array): Uint8Array {
+const invalid = (message: string) => Result.fail(new InvalidWav({ message }))
+
+export function canonical(input: Uint8Array): Result.Result<Uint8Array<ArrayBuffer>, InvalidWav> {
   const view = new DataView(input.buffer, input.byteOffset, input.byteLength)
   const tag = (at: number) => String.fromCharCode(...input.subarray(at, at + 4))
 
-  if (input.byteLength < 12 || tag(0) !== "RIFF" || tag(8) !== "WAVE") {
-    throw new InvalidWav("not a RIFF/WAVE file")
-  }
+  if (input.byteLength < 12 || tag(0) !== "RIFF" || tag(8) !== "WAVE") return invalid("not a RIFF/WAVE file")
 
   let format: { tag: number; channels: number; rate: number; bits: number } | undefined
   let data: Uint8Array | undefined
@@ -27,6 +31,8 @@ export function canonicalWav(input: Uint8Array): Uint8Array {
     const id = tag(at)
     const size = view.getUint32(at + 4, true)
     const body = at + 8
+
+    if (id === "fmt " && body + size > input.byteLength) return invalid("truncated fmt chunk")
 
     if (id === "fmt " && size >= 16) {
       let formatTag = view.getUint16(body, true)
@@ -48,12 +54,12 @@ export function canonicalWav(input: Uint8Array): Uint8Array {
     at = body + size + (size & 1)
   }
 
-  if (!format) throw new InvalidWav("missing fmt chunk")
+  if (!format) return invalid("missing fmt chunk")
 
-  if (!data) throw new InvalidWav("missing data chunk")
+  if (!data) return invalid("missing data chunk")
 
   if (format.tag !== PCM || format.channels !== 1 || format.rate !== SAMPLE_RATE || format.bits !== 16) {
-    throw new InvalidWav(
+    return invalid(
       `expected 16 kHz mono PCM16, got format ${format.tag}, ${format.channels} ch, ${format.rate} Hz, ${format.bits} bit`
     )
   }
@@ -77,5 +83,5 @@ export function canonicalWav(input: Uint8Array): Uint8Array {
   header.setUint32(40, length, true)
   out.set(data.subarray(0, length), 44)
 
-  return out
+  return Result.succeed(out)
 }

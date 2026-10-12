@@ -21,6 +21,7 @@ watch ──POST /v1/turn──▶ backend ──▶ transcription provider
 | Path                           | What                                                                                       |
 | ------------------------------ | ------------------------------------------------------------------------------------------ |
 | `packages/protocol/`           | The contract: HTTP API (watch ↔ backend), runner WebSocket protocol, shared Effect Schemas |
+| `packages/transcription/`      | Speech to text for backends: the `Transcription` service, WAV canonicalization, providers  |
 | `watch/`                       | watchOS app + widgets (Swift/SwiftUI, project generated with XcodeGen)                     |
 | `packages/backend-cloudflare/` | Reference backend: Cloudflare Worker + Durable Object (Hono + Effect)                      |
 | `packages/runner/`             | Long-lived process next to the agent (Bun + Effect), with agent adapters                   |

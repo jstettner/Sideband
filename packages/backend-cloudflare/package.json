@@ -9,10 +9,13 @@
   },
   "dependencies": {
     "@sideband/protocol": "workspace:*",
+    "@sideband/transcription": "workspace:*",
     "effect": "catalog:"
   },
   "devDependencies": {
     "@cloudflare/workers-types": "catalog:",
+    "@effect/vitest": "catalog:",
+    "vitest": "catalog:",
     "wrangler": "catalog:"
   }
 }

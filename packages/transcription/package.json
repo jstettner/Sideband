@@ -1,0 +1,24 @@
+{
+  "name": "@sideband/transcription",
+  "version": "0.0.0",
+  "private": true,
+  "type": "module",
+  "description": "Speech to text for backends: the Transcription service, WAV canonicalization, and each provider, platform-free.",
+  "sideEffects": false,
+  "exports": {
+    "./package.json": "./package.json",
+    ".": "./src/index.ts",
+    "./testing": "./src/testing/index.ts",
+    "./*": "./src/*.ts",
+    "./internal/*": null,
+    "./index": null
+  },
+  "peerDependencies": {
+    "effect": "catalog:"
+  },
+  "devDependencies": {
+    "@effect/vitest": "catalog:",
+    "effect": "catalog:",
+    "vitest": "catalog:"
+  }
+}

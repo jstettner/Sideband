@@ -21,6 +21,7 @@ export default defineConfig({
   test: {
     projects: [
       project("@sideband/protocol", "packages/protocol"),
+      project("@sideband/transcription", "packages/transcription"),
       project("@sideband/runner", "packages/runner"),
       project("@sideband/backend-cloudflare", "packages/backend-cloudflare"),
       project("scripts", "scripts", { test: { include: ["*.test.ts"] } })
