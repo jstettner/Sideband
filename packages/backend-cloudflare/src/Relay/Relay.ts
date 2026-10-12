@@ -1,40 +1,9 @@
-/* oxlint-disable -- Replaced by an Effect Durable Object whose decisions are pure functions. */
-import { type Common, Runner, type Status, type Turn } from "@sideband/protocol"
+/* oxlint-disable -- Replaced by an Effect Durable Object. */
+import { Runner, type Status, type Turn } from "@sideband/protocol"
 import { DurableObject } from "cloudflare:workers"
-import { Exit, Schema } from "effect"
-import { isResolved, type Outcome, Store, type TurnRow } from "./Store.ts"
-
-/** How long `submit` holds the request open before answering `running`. */
-const HOLD_MS = 25_000
-/** Poll interval suggested to clients for a `running` turn. */
-const RETRY_AFTER_MS = 1_000
-/** A runner whose last `ping` is older than this is offline. */
-const STALE_PING_MS = 45_000
-/** After a reconnect, unresolved turns younger than this are re-sent; older ones become `unknown`. */
-const RESEND_WINDOW_MS = 2 * 60_000
-/** How long a session operation waits for the runner. */
-const SESSION_OP_TIMEOUT_MS = 25_000
-/** Resolved turns are deleted this long after their last update. */
-const TURN_RETENTION_MS = 7 * 24 * 60 * 60_000
-/** How often the cleanup alarm runs. */
-const CLEANUP_INTERVAL_MS = 24 * 60 * 60_000
-
-const UNKNOWN_MESSAGE = "Lost contact with the agent. The turn may or may not have run."
-
-/** Close codes from protocol/runner.md. */
-const CLOSE_REPLACED = 4000
-const CLOSE_UNSUPPORTED_PROTOCOL = 4002
-
-/** Per-socket state, kept with the socket across hibernation. */
-interface Attachment {
-  readonly connectedAt: number
-  readonly hello?: {
-    readonly runner_version: string
-    readonly agent: Common.AgentInfo
-    /** Absent in attachments saved before protocol 2: those runners speak 1. */
-    readonly protocol?: Runner.Hello["protocol"]
-  }
-}
+import { Duration, Schema } from "effect"
+import * as Lifecycle from "./Lifecycle.ts"
+import { Store } from "./Store.ts"
 
 /**
  * RPC results: `value`, or why the request was `refused`. Errors are plain values because thrown
@@ -46,33 +15,33 @@ export interface Reply<A, E extends string> {
   readonly refused?: { readonly error: E; readonly message: string }
 }
 
-export interface SubmitTurn {
-  readonly key: string
-  readonly session: string
-  readonly transcript: string
-  readonly transcriptRaw?: string | undefined
-  /** SHA-256 of the request payload, to detect a key reused for a different command. */
-  readonly payloadHash: string
-}
-
-type SessionOpOutcome = Runner.SessionOpResult | Runner.SessionOpFailed
+type SubmitReply = Reply<typeof Turn.TurnState.Encoded, "agent_offline" | "session_busy" | "idempotency_conflict">
+type SessionOpRpcReply = Reply<
+  typeof Status.SessionState.Encoded,
+  "agent_offline" | "session_busy" | "not_supported" | "internal_error"
+>
 
 const ok = <A>(value: A) => ({ value })
 const refuse = <E extends string>(error: E, message: string) => ({ refused: { error, message } })
 
-const decodeMessage = Schema.decodeUnknownExit(Schema.fromJsonString(Runner.RunnerMessage))
+const encodeMessage = Schema.encodeSync(Schema.fromJsonString(Runner.RelayMessage))
 
 /**
  * Rendezvous between clients and the runner (one instance per user). Clients call the RPC
  * methods through the Worker; the runner holds a hibernatable WebSocket. Only open requests
  * are kept in memory; everything else is in SQLite (see Store.ts).
+ *
+ * Every event goes through `run`: read its rows, step (`Lifecycle`, pure), save, act.
  */
 export class Relay extends DurableObject<Cloudflare.Env> {
   private readonly store: Store
   /** Open `submit` calls waiting for a turn's outcome, by key. */
   private readonly turnWaiters = new Map<string, Set<() => void>>()
   /** Open `sessionOp` calls waiting for the runner, by op ID. */
-  private readonly opWaiters = new Map<string, (outcome: SessionOpOutcome) => void>()
+  private readonly opWaiters = new Map<
+    string,
+    { readonly session: string; readonly settle: (reply: Lifecycle.SessionOpReply) => void }
+  >()
 
   constructor(ctx: DurableObjectState, env: Cloudflare.Env) {
     super(ctx, env)
@@ -80,95 +49,75 @@ export class Relay extends DurableObject<Cloudflare.Env> {
     // Heartbeats are answered without waking the object.
     ctx.setWebSocketAutoResponse(new WebSocketRequestResponsePair(Runner.HEARTBEAT_PING, Runner.HEARTBEAT_PONG))
     void ctx.blockConcurrencyWhile(async () => {
-      if (await ctx.storage.getAlarm() === null) await ctx.storage.setAlarm(Date.now() + CLEANUP_INTERVAL_MS)
+      if (await ctx.storage.getAlarm() === null) {
+        await ctx.storage.setAlarm(Date.now() + Duration.toMillis(Lifecycle.CLEANUP_INTERVAL))
+      }
     })
   }
 
   // RPC
 
-  async submit(turn: SubmitTurn): Promise<
-    Reply<typeof Turn.TurnState.Encoded, "agent_offline" | "session_busy" | "idempotency_conflict">
-  > {
-    const runner = this.liveRunner()
-    const existing = this.store.turn(turn.key)
-    if (existing) {
-      return existing.payload_hash === turn.payloadHash
-        ? ok(this.turnState(existing))
-        : refuse("idempotency_conflict", "This Idempotency-Key was already used for a different command.")
-    }
-    if (!runner) return refuse("agent_offline", "The agent is offline. Nothing was run.")
-    const active = this.store.session(turn.session)?.active_key
-    if (active && runner.protocol < 2) {
-      return refuse("session_busy", "The agent is still working on the previous command. Nothing was run.")
-    }
+  async submit(turn: Lifecycle.SubmitTurn): Promise<SubmitReply> {
+    const live = this.liveRunner()
+    const answer = this.run(
+      Lifecycle.Event.cases.Submit.make({ turn, runner: live?.runner }),
+      (slice, now) => Lifecycle.submit(slice, turn, live?.runner, now),
+      live?.ws
+    )
 
-    if (active) {
-      this.store.claim(turn, Date.now(), active)
-      console.log(`turn ${turn.key} → runner (steer into ${active})`)
-      this.sendSteer(runner.ws, this.store.turn(turn.key)!, active)
-    } else {
-      this.store.claim(turn, Date.now())
-      console.log(`turn ${turn.key} → runner (session ${turn.session})`)
-      this.sendTurn(runner.ws, this.store.turn(turn.key)!)
-    }
-    await this.waitForOutcome(turn.key, HOLD_MS)
-    return ok(this.turnState(this.store.turn(turn.key)!))
+    return Lifecycle.SubmitAnswer.match(answer, {
+      Replay: async ({ row }): Promise<SubmitReply> => ok(Lifecycle.turnState(row)),
+      Conflict: async (): Promise<SubmitReply> =>
+        refuse("idempotency_conflict", "This Idempotency-Key was already used for a different command."),
+      Offline: async (): Promise<SubmitReply> => refuse("agent_offline", "The agent is offline. Nothing was run."),
+      Busy: async (): Promise<SubmitReply> =>
+        refuse("session_busy", "The agent is still working on the previous command. Nothing was run."),
+      Hold: async ({ key }): Promise<SubmitReply> => {
+        await this.waitForOutcome(key, Duration.toMillis(Lifecycle.HOLD))
+        return ok(Lifecycle.turnState(this.store.turn(key)!))
+      }
+    })
   }
 
   async get(key: string): Promise<Reply<typeof Turn.TurnState.Encoded, "not_found">> {
     this.liveRunner()
     const row = this.store.turn(key)
-    return row ? ok(this.turnState(row)) : refuse("not_found", `No turn ${key}.`)
+    return row ? ok(Lifecycle.turnState(row)) : refuse("not_found", `No turn ${key}.`)
   }
 
   async status(session: string): Promise<typeof Status.Status.Encoded> {
     const live = this.liveRunner()
-    const agentName = this.store.agentName()
-    return {
-      agent: { ...(agentName !== undefined ? { name: agentName } : {}), online: live !== undefined },
-      session: this.sessionState(session)
-    }
+    return Lifecycle.status(
+      this.store.agentName(),
+      live !== undefined,
+      Lifecycle.sessionState(session, this.store.session(session))
+    )
   }
 
-  async sessionOp(session: string, op: "new" | "compact"): Promise<
-    Reply<typeof Status.SessionState.Encoded, "agent_offline" | "session_busy" | "not_supported" | "internal_error">
-  > {
-    const runner = this.liveRunner()
-    if (!runner) return refuse("agent_offline", "The agent is offline. Nothing was run.")
-    const current = this.store.session(session)
-    if (current?.active_key) return refuse("session_busy", "The agent is still working on a command in this session.")
-
+  async sessionOp(session: string, op: "new" | "compact"): Promise<SessionOpRpcReply> {
+    const live = this.liveRunner()
     const opId = crypto.randomUUID()
-    const outcome = new Promise<SessionOpOutcome | undefined>((resolve) => {
-      const timer = setTimeout(() => {
-        this.opWaiters.delete(opId)
-        resolve(undefined)
-      }, SESSION_OP_TIMEOUT_MS)
-      this.opWaiters.set(opId, (outcome) => {
-        clearTimeout(timer)
-        this.opWaiters.delete(opId)
-        resolve(outcome)
-      })
-    })
-    runner.ws.send(JSON.stringify(
-      {
-        type: "session_op",
-        op_id: opId,
-        op,
-        session,
-        ...(current?.agent_session_id ? { agent_session_id: current.agent_session_id } : {})
-      } satisfies Runner.SessionOp
-    ))
+    const answer = this.run(
+      Lifecycle.Event.cases.SessionOp.make({ session, op, opId, runner: live?.runner }),
+      (slice) => Lifecycle.sessionOp(slice, { session, op, opId }, live?.runner),
+      live?.ws
+    )
 
-    const result = await outcome
-    if (!result) return refuse("internal_error", "The runner didn't answer.")
-    if (result.type === "session_op_failed") {
-      return result.code === "not_supported"
-        ? refuse("not_supported", result.message)
-        : refuse("internal_error", result.message)
-    }
-    this.store.setAgentSession(session, result.agent_session_id, result.context, Date.now())
-    return ok(this.sessionState(session))
+    return Lifecycle.SessionOpAnswer.match(answer, {
+      Offline: async (): Promise<SessionOpRpcReply> =>
+        refuse("agent_offline", "The agent is offline. Nothing was run."),
+      Busy: async (): Promise<SessionOpRpcReply> =>
+        refuse("session_busy", "The agent is still working on a command in this session."),
+      Wait: async (): Promise<SessionOpRpcReply> => {
+        const reply = await this.waitForAnswer(opId, session)
+        return Lifecycle.SessionOpReply.match(reply, {
+          Ok: (): SessionOpRpcReply => ok(Lifecycle.sessionState(session, this.store.session(session))),
+          NotSupported: ({ message }): SessionOpRpcReply => refuse("not_supported", message),
+          Failed: ({ message }): SessionOpRpcReply => refuse("internal_error", message),
+          NoAnswer: (): SessionOpRpcReply => refuse("internal_error", "The runner didn't answer.")
+        })
+      }
+    })
   }
 
   // Runner WebSocket
@@ -178,60 +127,32 @@ export class Relay extends DurableObject<Cloudflare.Env> {
     if (request.headers.get("upgrade")?.toLowerCase() !== "websocket") {
       return new Response("expected a WebSocket upgrade", { status: 400 })
     }
-    for (const old of this.ctx.getWebSockets()) old.close(CLOSE_REPLACED, "replaced")
+    for (const old of this.ctx.getWebSockets()) old.close(Lifecycle.CLOSE_REPLACED, "replaced")
 
     const { 0: client, 1: server } = new WebSocketPair()
     this.ctx.acceptWebSocket(server)
-    server.serializeAttachment({ connectedAt: Date.now() } satisfies Attachment)
+    server.serializeAttachment({ connectedAt: Date.now() } satisfies Lifecycle.Attachment)
     console.log("runner connected")
     return new Response(null, { status: 101, webSocket: client })
   }
 
   override async webSocketMessage(ws: WebSocket, message: string | ArrayBuffer): Promise<void> {
     if (typeof message !== "string") return
-    if (message === Runner.HEARTBEAT_PING) return ws.send(Runner.HEARTBEAT_PONG)
 
-    const decoded = decodeMessage(message)
-    if (Exit.isFailure(decoded)) {
-      if (messageType(message) === "hello") {
+    Lifecycle.Frame.match(Lifecycle.classifyFrame(message), {
+      Ping: () => ws.send(Runner.HEARTBEAT_PONG),
+      RejectHello: () => {
         console.warn("runner hello rejected: unsupported protocol")
-        return ws.close(CLOSE_UNSUPPORTED_PROTOCOL, "unsupported_protocol")
-      }
-      console.warn(`ignoring runner message: ${message.slice(0, 200)}`)
-      return
-    }
-
-    const msg = decoded.value
-    switch (msg.type) {
-      case "hello":
-        return this.onHello(ws, msg)
-      case "ack": {
-        const row = this.store.turn(msg.key)
-        if (row && (row.state === "pending" || row.state === "sent")) this.store.setState(msg.key, "acked", Date.now())
-        return
-      }
-      case "result":
-      case "needs_approval":
-      case "turn_failed":
-      case "merged": {
-        const row = this.store.turn(msg.key)
-        // Duplicates (e.g. re-delivered after a reconnect) are ignored.
-        if (!row || isResolved(row)) return
-        console.log(`turn ${msg.key} ← ${msg.type}`)
-        return this.resolve(row, msg)
-      }
-      case "session_op_result":
-      case "session_op_failed":
-        return this.opWaiters.get(msg.op_id)?.(msg)
-    }
+        ws.close(Lifecycle.CLOSE_UNSUPPORTED_PROTOCOL, "unsupported_protocol")
+      },
+      Ignore: () => console.warn(`ignoring runner message: ${message.slice(0, 200)}`),
+      Message: ({ message: msg }) => this.onMessage(ws, msg)
+    })
   }
 
   /** Daily cleanup of old turns. */
   override async alarm(): Promise<void> {
-    const now = Date.now()
-    const pruned = this.store.prune(now - TURN_RETENTION_MS)
-    if (pruned > 0) console.log(`pruned ${pruned} old turns`)
-    await this.ctx.storage.setAlarm(now + CLEANUP_INTERVAL_MS)
+    this.run(Lifecycle.Event.cases.Alarm.make({}), (_, now) => Lifecycle.alarm(now))
   }
 
   override async webSocketClose(ws: WebSocket, code: number, reason: string): Promise<void> {
@@ -247,73 +168,92 @@ export class Relay extends DurableObject<Cloudflare.Env> {
     console.warn(`runner socket error: ${String(error)}`)
   }
 
-  /**
-   * First message of a connection. Turns the runner is still executing are left alone; other
-   * unresolved turns are re-sent if recent (the runner never runs a key twice) or marked
-   * `unknown`, so a command never runs late by surprise. Steers are never re-sent: the agent
-   * can't dedup them.
-   */
-  private onHello(ws: WebSocket, hello: Runner.Hello): void {
-    const attachment = ws.deserializeAttachment() as Attachment
-    ws.serializeAttachment(
-      {
-        ...attachment,
-        hello: { runner_version: hello.runner_version, agent: hello.agent, protocol: hello.protocol }
-      } satisfies Attachment
-    )
-    this.store.setAgentName(hello.agent.name)
-    console.log(
-      `runner hello: ${hello.agent.name} (runner ${hello.runner_version}, protocol ${hello.protocol}), ` +
-        `in flight: ${hello.in_flight.length}`
-    )
-
-    const inFlight = new Set(hello.in_flight)
-    const now = Date.now()
-    for (const row of this.store.unresolvedTurns()) {
-      if (inFlight.has(row.key)) continue
-      if (row.steer_into === null && now - row.created_at < RESEND_WINDOW_MS) {
-        console.log(`turn ${row.key} re-sent after reconnect`)
-        this.sendTurn(ws, row)
-      } else {
-        this.resolve(row, undefined)
-      }
+  private onMessage(ws: WebSocket, msg: Runner.RunnerMessage): void {
+    const outcome = (result: Lifecycle.Outcome) => {
+      console.log(`turn ${result.key} ← ${result.type}`)
+      this.run(
+        Lifecycle.Event.cases.Outcome.make({ outcome: result }),
+        (slice, now) => Lifecycle.outcome(slice, result, now),
+        ws
+      )
     }
+    const sessionOpAnswer = (answer: Runner.SessionOpResult | Runner.SessionOpFailed) => {
+      // An answer after the op timed out has no one to tell, and is dropped.
+      const waiter = this.opWaiters.get(answer.op_id)
+      if (!waiter) return
+      const event = { session: waiter.session, opId: answer.op_id, outcome: answer }
+      this.run(
+        Lifecycle.Event.cases.SessionOpAnswer.make(event),
+        (slice, now) => Lifecycle.sessionOpAnswer(slice, event, now),
+        ws
+      )
+    }
+
+    Runner.RunnerMessage.match(msg, {
+      hello: (hello) => {
+        console.log(
+          `runner hello: ${hello.agent.name} (runner ${hello.runner_version}, protocol ${hello.protocol}), ` +
+            `in flight: ${hello.in_flight.length}`
+        )
+        this.run(Lifecycle.Event.cases.Hello.make({ hello }), (slice, now) => Lifecycle.hello(slice, hello, now), ws)
+      },
+      ack: ({ key }) =>
+        this.run(Lifecycle.Event.cases.Ack.make({ key }), (slice, now) => Lifecycle.ack(slice, key, now), ws),
+      result: outcome,
+      needs_approval: outcome,
+      turn_failed: outcome,
+      merged: outcome,
+      session_op_result: sessionOpAnswer,
+      session_op_failed: sessionOpAnswer
+    })
   }
 
-  private sendTurn(ws: WebSocket, row: TurnRow): void {
-    const agentSessionId = this.store.session(row.session)?.agent_session_id
-    ws.send(JSON.stringify(
-      {
-        type: "turn",
-        key: row.key,
-        session: row.session,
-        ...(agentSessionId ? { agent_session_id: agentSessionId } : {}),
-        transcript: row.transcript
-      } satisfies Runner.Turn
-    ))
-    this.store.setState(row.key, "sent", Date.now())
+  /** Read → step → save → act, all synchronously, so no other event interleaves. */
+  private run<A>(
+    event: Lifecycle.Event,
+    step: (slice: Lifecycle.Slice, now: number) => Lifecycle.Step<A>,
+    ws?: WebSocket
+  ): A {
+    const now = Date.now()
+    const { writes, commands, answer } = step(Lifecycle.read(this.store, event), now)
+    const pruned = this.store.save(writes)
+
+    for (const row of writes.turns) if (row.state === "unknown") console.log(`turn ${row.key} → unknown`)
+    if (pruned > 0) console.log(`pruned ${pruned} old turns`)
+    for (const command of commands) this.act(command, ws)
+
+    return answer
   }
 
-  private sendSteer(ws: WebSocket, row: TurnRow, into: string): void {
-    const agentSessionId = this.store.session(row.session)?.agent_session_id
-    ws.send(JSON.stringify(
-      {
-        type: "steer",
-        key: row.key,
-        into,
-        session: row.session,
-        ...(agentSessionId ? { agent_session_id: agentSessionId } : {}),
-        transcript: row.transcript
-      } satisfies Runner.Steer
-    ))
-    this.store.setState(row.key, "sent", Date.now())
-  }
-
-  /** Stores the outcome (`undefined`: lost) and wakes anyone waiting on it. */
-  private resolve(row: TurnRow, outcome: Outcome | undefined): void {
-    this.store.resolve(row, outcome, Date.now())
-    if (!outcome) console.log(`turn ${row.key} → unknown`)
-    for (const wake of [...(this.turnWaiters.get(row.key) ?? [])]) wake()
+  private act(command: Lifecycle.Command, ws: WebSocket | undefined): void {
+    Lifecycle.Command.match(command, {
+      Send: ({ message }) => {
+        if (!ws) throw new Error(`no runner socket to send ${message.type} on`)
+        ws.send(encodeMessage(message))
+        console.log(
+          message.type === "session_op"
+            ? `session ${message.session} → runner (${message.op})`
+            : `turn ${message.key} → runner${message.type === "steer" ? ` (steer into ${message.into})` : ""}`
+        )
+      },
+      Wake: ({ key }) => {
+        for (const wake of [...(this.turnWaiters.get(key) ?? [])]) wake()
+      },
+      Answer: ({ opId, reply }) => this.opWaiters.get(opId)?.settle(reply),
+      Attach: ({ hello }) => {
+        if (!ws) throw new Error("no runner socket to attach hello to")
+        const attachment = ws.deserializeAttachment() as Lifecycle.Attachment
+        ws.serializeAttachment(
+          {
+            ...attachment,
+            hello: { runner_version: hello.runner_version, agent: hello.agent, protocol: hello.protocol }
+          } satisfies Lifecycle.Attachment
+        )
+      },
+      SetAlarm: ({ at }) => {
+        void this.ctx.storage.setAlarm(at)
+      }
+    })
   }
 
   private waitForOutcome(key: string, timeoutMs: number): Promise<void> {
@@ -331,74 +271,47 @@ export class Relay extends DurableObject<Cloudflare.Env> {
     })
   }
 
+  /** The runner's answer to session op `opId`, or `NoAnswer` after the timeout. */
+  private waitForAnswer(opId: string, session: string): Promise<Lifecycle.SessionOpReply> {
+    return new Promise((resolve) => {
+      const settle = (reply: Lifecycle.SessionOpReply) => {
+        clearTimeout(timer)
+        this.opWaiters.delete(opId)
+        resolve(reply)
+      }
+      const timer = setTimeout(
+        () => settle(Lifecycle.sessionOpReply(undefined)),
+        Duration.toMillis(Lifecycle.SESSION_OP_TIMEOUT)
+      )
+      this.opWaiters.set(opId, { session, settle })
+    })
+  }
+
   /** The connected runner that has said hello, if any, and whether its heartbeat is fresh. */
-  private runner(): { ws: WebSocket; online: boolean; protocol: number } | undefined {
-    for (const ws of this.ctx.getWebSockets()) {
-      const attachment = ws.deserializeAttachment() as Attachment | null
-      if (ws.readyState !== WebSocket.OPEN || !attachment?.hello) continue
-      const lastPing = this.ctx.getWebSocketAutoResponseTimestamp(ws)?.getTime() ?? attachment.connectedAt
-      return { ws, online: Date.now() - lastPing <= STALE_PING_MS, protocol: attachment.hello.protocol ?? 1 }
-    }
-    return undefined
-  }
-
-  /**
-   * The runner, if it's online. If it isn't, nothing will resolve old turns until it comes
-   * back, so turns past the re-send window are marked `unknown` now (pollers stop waiting).
-   */
-  private liveRunner(): { ws: WebSocket; protocol: number } | undefined {
-    const runner = this.runner()
-    if (runner?.online) return runner
+  private runnerSocket(): { readonly ws: WebSocket; readonly view: Lifecycle.RunnerView } | undefined {
     const now = Date.now()
-    for (const row of this.store.unresolvedTurns()) {
-      if (now - row.created_at >= RESEND_WINDOW_MS) this.resolve(row, undefined)
-    }
-    return undefined
-  }
-
-  private turnState(row: TurnRow): typeof Turn.TurnState.Encoded {
-    const base = { idempotency_key: row.key, session: row.session, transcript: row.transcript }
-    if (row.state === "unknown") return { status: "unknown", ...base, message: UNKNOWN_MESSAGE }
-    if (row.state !== "done") return { status: "running", ...base, retry_after_ms: RETRY_AFTER_MS }
-
-    const outcome = JSON.parse(row.outcome_json!) as Outcome
-    switch (outcome.type) {
-      case "result": {
-        const { type: _type, key: _key, agent_session_id: _agentSessionId, ...answer } = outcome
-        return {
-          status: "completed",
-          ...base,
-          ...(row.transcript_raw !== null ? { transcript_raw: row.transcript_raw } : {}),
-          ...answer
+    for (const ws of this.ctx.getWebSockets()) {
+      const attachment = ws.deserializeAttachment() as Lifecycle.Attachment | null
+      if (ws.readyState !== WebSocket.OPEN || !attachment?.hello) continue
+      const lastPing = this.ctx.getWebSocketAutoResponseTimestamp(ws)?.getTime()
+      return {
+        ws,
+        view: {
+          online: Lifecycle.isOnline(attachment.connectedAt, lastPing, now),
+          protocol: attachment.hello.protocol ?? 1
         }
       }
-      case "needs_approval":
-        return { status: "needs_approval", ...base, message: outcome.message }
-      case "turn_failed":
-        return { status: "failed", ...base, code: outcome.code, message: outcome.message }
-      case "merged":
-        return { status: "merged", ...base, into: outcome.into }
     }
-  }
-
-  private sessionState(name: string): typeof Status.SessionState.Encoded {
-    const row = this.store.session(name)
-    return {
-      name,
-      busy: row?.active_key != null,
-      ...(row?.context_used != null && row.context_limit != null
-        ? { context: { used_tokens: row.context_used, limit_tokens: row.context_limit } }
-        : {}),
-      ...(row?.last_activity != null ? { last_activity: new Date(row.last_activity).toISOString() } : {})
-    }
-  }
-}
-
-/** `type` of a JSON message that failed to decode, to recognize a hello we can't accept. */
-function messageType(message: string): unknown {
-  try {
-    return (JSON.parse(message) as { type?: unknown }).type
-  } catch {
     return undefined
+  }
+
+  /** The runner, if it's online, after the check step (which expires old turns while it isn't). */
+  private liveRunner(): { readonly ws: WebSocket; readonly runner: Lifecycle.LiveRunner } | undefined {
+    const socket = this.runnerSocket()
+    const runner = this.run(
+      Lifecycle.Event.cases.Check.make({ runner: socket?.view }),
+      (slice, now) => Lifecycle.check(slice, socket?.view, now)
+    )
+    return runner && socket ? { ws: socket.ws, runner } : undefined
   }
 }

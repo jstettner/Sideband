@@ -8,7 +8,7 @@ import { HttpApiBuilder } from "effect/http-api"
 import * as Auth from "../src/Api/Auth.ts"
 import * as Status from "../src/Api/Status.ts"
 import * as Turns from "../src/Api/Turns.ts"
-import type { SubmitTurn } from "../src/Relay/Relay.ts"
+import type { SubmitTurn } from "../src/Relay/Lifecycle.ts"
 import { RelayClient } from "../src/Relay/RelayClient.ts"
 
 const KEY = "4f9c2d7e-8b1a-4c3e-9f2d-6a5b8c7d9e0f"

@@ -1,7 +1,8 @@
 /* oxlint-disable -- Goes away once Durable Object RPC carries typed errors. */
 import { Errors, Status, Turn } from "@sideband/protocol"
 import { Context, Effect, Layer, Schema } from "effect"
-import type { Relay, Reply, SubmitTurn } from "./Relay.ts"
+import type { SubmitTurn } from "./Lifecycle.ts"
+import type { Relay, Reply } from "./Relay.ts"
 
 /** Protocol errors the relay can refuse a request with, by code. */
 const refusals = {

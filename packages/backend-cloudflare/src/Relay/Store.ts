@@ -1,41 +1,11 @@
 /* oxlint-disable -- Replaced by SQL functions over Effect's SqlClient. */
-import type { Runner } from "@sideband/protocol"
+import { Schema } from "effect"
+import { SessionRow, type Source, TurnRow, type Writes } from "./Lifecycle.ts"
 
 /**
- * The relay's SQLite storage. Everything that must survive hibernation lives here; only
- * `Relay.ts` uses it. Timestamps are epoch milliseconds.
+ * The relay's SQLite storage: the rows `Lifecycle` reads and the writes its steps produce. Everything that
+ * must survive hibernation lives here; only `Relay.ts` uses it. Timestamps are epoch milliseconds.
  */
-
-/** `pending` → `sent` → `acked` → `done` (outcome stored) or `unknown` (outcome lost). */
-export type TurnStatus = "pending" | "sent" | "acked" | "done" | "unknown"
-
-/** What the runner reported for a turn, stored as `outcome_json`. */
-export type Outcome = Runner.TurnResult | Runner.TurnNeedsApproval | Runner.TurnFailed | Runner.TurnMerged
-
-export interface TurnRow {
-  readonly key: string
-  readonly session: string
-  readonly payload_hash: string
-  readonly transcript: string
-  readonly transcript_raw: string | null
-  readonly state: TurnStatus
-  readonly outcome_json: string | null
-  /** Key of the turn this one was sent to steer, if it was a steer. */
-  readonly steer_into: string | null
-  readonly created_at: number
-  readonly updated_at: number
-}
-
-export interface SessionRow {
-  readonly name: string
-  readonly agent_session_id: string | null
-  readonly active_key: string | null
-  readonly context_used: number | null
-  readonly context_limit: number | null
-  readonly last_activity: number | null
-}
-
-export const isResolved = (row: TurnRow): boolean => row.state === "done" || row.state === "unknown"
 
 /**
  * Schema changes, applied in order. `schema_version` records how many have run, so each runs
@@ -72,11 +42,17 @@ const migrations: ReadonlyArray<string> = [
 /** `storage.kv` key: the agent behind the last runner that said hello, for status while offline. */
 const AGENT_NAME = "agent_name"
 
-export class Store {
+const decodeTurn = Schema.decodeUnknownSync(TurnRow)
+const encodeTurn = Schema.encodeSync(TurnRow)
+const decodeSession = Schema.decodeUnknownSync(SessionRow)
+
+export class Store implements Source {
+  private readonly storage: DurableObjectStorage
   private readonly sql: SqlStorage
   private readonly kv: SyncKvStorage
 
   constructor(storage: DurableObjectStorage) {
+    this.storage = storage
     this.sql = storage.sql
     this.kv = storage.kv
     storage.transactionSync(() => {
@@ -93,135 +69,77 @@ export class Store {
     return this.kv.get<string>(AGENT_NAME)
   }
 
-  setAgentName(name: string): void {
-    this.kv.put(AGENT_NAME, name)
-  }
-
   turn(key: string): TurnRow | undefined {
-    return this.sql.exec<TurnRow & Record<string, SqlStorageValue>>("SELECT * FROM turns WHERE key = ?", key)
-      .toArray()[0]
+    const row = this.sql.exec("SELECT * FROM turns WHERE key = ?", key).toArray()[0]
+    return row === undefined ? undefined : decodeTurn(row)
   }
 
   /** Turns still waiting for an outcome, oldest first. */
-  unresolvedTurns(): Array<TurnRow> {
-    return this.sql.exec<TurnRow & Record<string, SqlStorageValue>>(
-      "SELECT * FROM turns WHERE state IN ('pending', 'sent', 'acked') ORDER BY created_at"
-    ).toArray()
+  unresolvedTurns(): ReadonlyArray<TurnRow> {
+    return this.sql.exec("SELECT * FROM turns WHERE state IN ('pending', 'sent', 'acked') ORDER BY created_at")
+      .toArray()
+      .map((row) => decodeTurn(row))
   }
 
-  /**
-   * Inserts a new turn and makes it its session's active turn. A steer (`steerInto`) leaves the
-   * active turn alone: it's answered through that turn.
-   */
-  claim(
-    turn: {
-      readonly key: string
-      readonly session: string
-      readonly payloadHash: string
-      readonly transcript: string
-      readonly transcriptRaw?: string | undefined
-    },
-    now: number,
-    steerInto?: string
-  ): void {
-    this.sql.exec(
-      `INSERT INTO turns (key, session, payload_hash, transcript, transcript_raw, state, steer_into, created_at, updated_at)
-       VALUES (?, ?, ?, ?, ?, 'pending', ?, ?, ?)`,
-      turn.key,
-      turn.session,
-      turn.payloadHash,
-      turn.transcript,
-      turn.transcriptRaw ?? null,
-      steerInto ?? null,
-      now,
-      now
-    )
-    if (steerInto !== undefined) {
-      this.sql.exec("UPDATE sessions SET last_activity = ? WHERE name = ?", now, turn.session)
-      return
-    }
-    this.sql.exec(
-      `INSERT INTO sessions (name, active_key, last_activity) VALUES (?, ?, ?)
-       ON CONFLICT (name) DO UPDATE SET active_key = excluded.active_key, last_activity = excluded.last_activity`,
-      turn.session,
-      turn.key,
-      now
-    )
-  }
-
-  setState(key: string, state: "sent" | "acked", now: number): void {
-    this.sql.exec("UPDATE turns SET state = ?, updated_at = ? WHERE key = ?", state, now, key)
-  }
-
-  /**
-   * Stores the outcome (or marks it lost). If `row` was its session's active turn, the latest
-   * unresolved steer into it takes over (the runner may still run it on its own); otherwise the
-   * session is free for the next turn.
-   */
-  resolve(row: TurnRow, outcome: Outcome | undefined, now: number): void {
-    this.sql.exec(
-      "UPDATE turns SET state = ?, outcome_json = ?, updated_at = ? WHERE key = ?",
-      outcome ? "done" : "unknown",
-      outcome ? JSON.stringify(outcome) : null,
-      now,
-      row.key
-    )
-    this.sql.exec(
-      `UPDATE sessions SET
-         active_key = (SELECT key FROM turns WHERE steer_into = ? AND state IN ('pending', 'sent', 'acked')
-                       ORDER BY created_at DESC LIMIT 1),
-         last_activity = ?
-       WHERE name = ? AND active_key = ?`,
-      row.key,
-      now,
-      row.session,
-      row.key
-    )
-    if (outcome && (outcome.type === "result" || outcome.type === "needs_approval")) {
-      this.setAgentSession(
-        row.session,
-        outcome.agent_session_id,
-        outcome.type === "result" ? outcome.context : undefined,
-        now
-      )
-    }
-  }
-
-  /** Deletes resolved turns last updated before `before`. Returns how many. */
-  prune(before: number): number {
-    return this.sql.exec("DELETE FROM turns WHERE state IN ('done', 'unknown') AND updated_at < ?", before)
-      .rowsWritten
+  unresolvedSteersInto(key: string): ReadonlyArray<TurnRow> {
+    return this.sql.exec(
+      "SELECT * FROM turns WHERE steer_into = ? AND state IN ('pending', 'sent', 'acked') ORDER BY created_at",
+      key
+    ).toArray().map((row) => decodeTurn(row))
   }
 
   session(name: string): SessionRow | undefined {
-    return this.sql.exec<SessionRow & Record<string, SqlStorageValue>>("SELECT * FROM sessions WHERE name = ?", name)
-      .toArray()[0]
+    const row = this.sql.exec("SELECT * FROM sessions WHERE name = ?", name).toArray()[0]
+    return row === undefined ? undefined : decodeSession(row)
   }
 
-  /**
-   * Records the agent session now behind `name`, and its context usage if reported. Keeps the
-   * last known usage when none is reported, unless the agent session changed.
-   */
-  setAgentSession(
-    name: string,
-    agentSessionId: string,
-    context: { readonly used_tokens: number; readonly limit_tokens: number } | undefined,
-    now: number
-  ): void {
-    this.sql.exec(
-      `INSERT INTO sessions (name, agent_session_id, context_used, context_limit, last_activity) VALUES (?, ?, ?, ?, ?)
-       ON CONFLICT (name) DO UPDATE SET
-         agent_session_id = excluded.agent_session_id,
-         context_used = CASE WHEN excluded.context_used IS NULL AND sessions.agent_session_id IS excluded.agent_session_id
-           THEN sessions.context_used ELSE excluded.context_used END,
-         context_limit = CASE WHEN excluded.context_used IS NULL AND sessions.agent_session_id IS excluded.agent_session_id
-           THEN sessions.context_limit ELSE excluded.context_limit END,
-         last_activity = excluded.last_activity`,
-      name,
-      agentSessionId,
-      context?.used_tokens ?? null,
-      context?.limit_tokens ?? null,
-      now
-    )
+  /** Writes a step's rows in one transaction. Returns how many turns were pruned. */
+  save(writes: Writes): number {
+    return this.storage.transactionSync(() => {
+      for (const turn of writes.turns) {
+        const row = encodeTurn(turn)
+        this.sql.exec(
+          `INSERT INTO turns (key, session, payload_hash, transcript, transcript_raw, state, outcome_json, steer_into,
+                              created_at, updated_at)
+           VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+           ON CONFLICT (key) DO UPDATE SET
+             session = excluded.session, payload_hash = excluded.payload_hash, transcript = excluded.transcript,
+             transcript_raw = excluded.transcript_raw, state = excluded.state, outcome_json = excluded.outcome_json,
+             steer_into = excluded.steer_into, created_at = excluded.created_at, updated_at = excluded.updated_at`,
+          row.key,
+          row.session,
+          row.payload_hash,
+          row.transcript,
+          row.transcript_raw,
+          row.state,
+          row.outcome_json,
+          row.steer_into,
+          row.created_at,
+          row.updated_at
+        )
+      }
+      for (const session of writes.sessions) {
+        this.sql.exec(
+          `INSERT INTO sessions (name, agent_session_id, active_key, context_used, context_limit, last_activity)
+           VALUES (?, ?, ?, ?, ?, ?)
+           ON CONFLICT (name) DO UPDATE SET
+             agent_session_id = excluded.agent_session_id, active_key = excluded.active_key,
+             context_used = excluded.context_used, context_limit = excluded.context_limit,
+             last_activity = excluded.last_activity`,
+          session.name,
+          session.agent_session_id,
+          session.active_key,
+          session.context_used,
+          session.context_limit,
+          session.last_activity
+        )
+      }
+      if (writes.agentName !== undefined) this.kv.put(AGENT_NAME, writes.agentName)
+      if (writes.pruneBefore === undefined) return 0
+      return this.sql.exec(
+        "DELETE FROM turns WHERE state IN ('done', 'unknown') AND updated_at < ?",
+        writes.pruneBefore
+      ).rowsWritten
+    })
   }
 }
