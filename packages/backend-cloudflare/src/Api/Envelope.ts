@@ -3,33 +3,39 @@
  * with plain-text or empty bodies, and v4 has no hook to shape them. Re-wrap those in the protocol's error
  * shape so clients can always read `error` and `retryable`.
  */
-import { Effect, Match } from "effect"
+import { Errors } from "@sideband/protocol"
+import { Effect, Match, Schema } from "effect"
 import { HttpBody, HttpServerError, HttpServerResponse } from "effect/http"
 
 const decoder = new TextDecoder()
 
-export const envelope = (response: HttpServerResponse.HttpServerResponse): HttpServerResponse.HttpServerResponse => {
-  const code = Match.value(response.status).pipe(
-    Match.when(415, () => "unsupported_media_type" as const),
-    Match.when(400, () => "invalid_request" as const),
+const body = HttpServerResponse.schemaJson(Schema.Union([Errors.InvalidRequest, Errors.UnsupportedMediaType]))
+
+export const envelope = Effect.fnUntraced(function*(response: HttpServerResponse.HttpServerResponse) {
+  const bytes = response.body instanceof HttpBody.Uint8Array ? response.body : undefined
+  const contentType = bytes?.contentType ?? response.headers["content-type"] ?? ""
+  const text = bytes ? decoder.decode(bytes.body).trim() : ""
+
+  const error = Match.value(response.status).pipe(
+    Match.when(415, () =>
+      new Errors.UnsupportedMediaType({
+        error: "unsupported_media_type",
+        message: text === "" ? "unsupported content type" : text,
+        retryable: false
+      })),
+    Match.when(400, () =>
+      new Errors.InvalidRequest({
+        error: "invalid_request",
+        message: text === "" ? "malformed request" : text,
+        retryable: false
+      })),
     Match.orElse(() => undefined)
   )
 
-  const bytes = response.body instanceof HttpBody.Uint8Array ? response.body : undefined
-  const contentType = bytes?.contentType ?? response.headers["content-type"] ?? ""
+  if (error === undefined || contentType.includes("application/json")) return response
 
-  if (code === undefined || contentType.includes("application/json")) return response
-
-  const body = bytes ? decoder.decode(bytes.body).trim() : ""
-
-  const message = body !== ""
-    ? body
-    : code === "invalid_request"
-    ? "malformed request"
-    : "unsupported content type"
-
-  return HttpServerResponse.jsonUnsafe({ error: code, message, retryable: false }, { status: response.status })
-}
+  return yield* body(error, { status: response.status }).pipe(Effect.orDie)
+})
 
 /**
  * `fetch` with every failure turned into the response the server would send (a request that doesn't
@@ -45,5 +51,5 @@ export const respond = <E, R>(
         Effect.map(([response]) => response)
       )
     ),
-    Effect.map(envelope)
+    Effect.flatMap(envelope)
   )

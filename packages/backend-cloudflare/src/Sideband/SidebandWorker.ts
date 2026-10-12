@@ -11,7 +11,7 @@ import { Api } from "@sideband/protocol"
 import type { Transcription } from "@sideband/transcription"
 import * as Cloudflare from "alchemy/Cloudflare"
 import { Stack } from "alchemy/Stack"
-import { type Config, Config as C, Effect, Exit, Layer } from "effect"
+import { type Config, Config as C, Effect, Exit, Layer, Schema } from "effect"
 import { HttpRouter, HttpServer, HttpServerResponse } from "effect/http"
 import { HttpApiBuilder } from "effect/http-api"
 import * as Auth from "../Api/Auth.ts"
@@ -29,6 +29,11 @@ import { PROD, PROD_SCRIPT } from "../Stage.ts"
  * Alchemy binds the configuration they read. Removing one from `Layers.ts` fails `bun run check` here.
  */
 const services: Layer.Layer<Transcription.Transcription, Config.ConfigError> = Layers.Transcription
+
+/** `GET /healthz`: whether the Relay answers, with its SQLite migrated. */
+const Health = Schema.Struct({ ok: Schema.Boolean, relay: Schema.Literals(["ok", "error"]) })
+
+const health = HttpServerResponse.schemaJson(Health)
 
 export class SidebandWorker extends Cloudflare.Worker<SidebandWorker, {}, RelayDO>()("Sideband") {}
 
@@ -69,11 +74,11 @@ export default SidebandWorker.make(
     const healthz = Effect.gen(function*() {
       const exit = yield* Effect.exit(relays.getByName(RelayClient.OWNER).ping())
 
-      if (Exit.isSuccess(exit)) return HttpServerResponse.jsonUnsafe({ ok: true, relay: "ok" })
+      if (Exit.isSuccess(exit)) return yield* health({ ok: true, relay: "ok" })
       yield* Effect.logError("relay ping failed", exit.cause)
 
-      return HttpServerResponse.jsonUnsafe({ ok: false, relay: "error" }, { status: 503 })
-    }).pipe(Effect.withSpan("Sideband.healthz"))
+      return yield* health({ ok: false, relay: "error" }, { status: 503 })
+    }).pipe(Effect.orDie, Effect.withSpan("Sideband.healthz"))
 
     const fetch = yield* HttpRouter.toHttpEffect(
       Layer.mergeAll(api, Runner.route(relays, runnerToken), HttpRouter.add("GET", "/healthz", healthz))
