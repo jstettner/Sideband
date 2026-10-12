@@ -44,6 +44,7 @@
       },
       "devDependencies": {
         "@cloudflare/workers-types": "catalog:",
+        "@effect/platform-bun": "catalog:",
         "@effect/platform-node": "catalog:",
         "@effect/sql-sqlite-node": "catalog:",
         "@effect/vitest": "catalog:",
