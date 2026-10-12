@@ -12,7 +12,7 @@
  * Nothing here touches Cloudflare: timestamps are epoch milliseconds passed in as `now`.
  */
 import { Common, Runner, type Status, type Turn } from "@sideband/protocol"
-import { Duration, Exit, Option, Schema, type Types } from "effect"
+import { Duration, Effect, Exit, Option, Schema, type Types } from "effect"
 
 /** How long `submit` holds the request open before answering `running`. */
 export const HOLD = Duration.seconds(25)
@@ -231,47 +231,85 @@ export const SessionOpAnswer = Schema.TaggedUnion({
 
 export type SessionOpAnswer = typeof SessionOpAnswer.Type
 
+// Refusals
+
+/*
+ * How the relay's RPC methods fail. Tagged, so each crosses Durable Object RPC as its own class; the
+ * Worker maps them to the protocol's errors, which carry no tag and so can't cross RPC themselves.
+ */
+
+/** No runner is online. Nothing was run. */
+export class AgentOffline extends Schema.TaggedError<AgentOffline>()("AgentOffline", { message: Schema.String }) {}
+
+/** A turn is running in the session and the runner can't take this request. Nothing was run. */
+export class SessionBusy extends Schema.TaggedError<SessionBusy>()("SessionBusy", { message: Schema.String }) {}
+
+/** The idempotency key was already used for a different command. */
+export class IdempotencyConflict extends Schema.TaggedError<IdempotencyConflict>()("IdempotencyConflict", {
+  message: Schema.String
+}) {}
+
+export class TurnNotFound extends Schema.TaggedError<TurnNotFound>()("TurnNotFound", { message: Schema.String }) {}
+
+/** The agent can't do this session op. */
+export class OpNotSupported extends Schema.TaggedError<OpNotSupported>()("OpNotSupported", {
+  message: Schema.String
+}) {}
+
+/** The session op failed at the agent, or the runner didn't answer in time. */
+export class OpFailed extends Schema.TaggedError<OpFailed>()("OpFailed", { message: Schema.String }) {}
+
 // Reading
 
 /** The stored rows {@link read} can ask for. */
-export interface Source {
-  readonly turn: (key: string) => TurnRow | undefined
-  readonly session: (name: string) => SessionRow | undefined
+export interface Source<E, R> {
+  readonly turn: (key: string) => Effect.Effect<Option.Option<TurnRow>, E, R>
+  readonly session: (name: string) => Effect.Effect<Option.Option<SessionRow>, E, R>
   /** Turns still waiting for an outcome, oldest first. */
-  readonly unresolvedTurns: () => ReadonlyArray<TurnRow>
-  readonly unresolvedSteersInto: (key: string) => ReadonlyArray<TurnRow>
+  readonly unresolvedTurns: Effect.Effect<ReadonlyArray<TurnRow>, E, R>
+  readonly unresolvedSteersInto: (key: string) => Effect.Effect<ReadonlyArray<TurnRow>, E, R>
 }
 
-const sliceOf = (source: Source, turns: ReadonlyArray<TurnRow>, sessionNames: Iterable<string>): Slice => ({
-  turns,
-  sessions: [...new Set(sessionNames)].flatMap((name) => source.session(name) ?? [])
-})
+/**
+ * Loads the rows `event`'s step reads: the turns it may change, the sessions they belong to, and, for
+ * an outcome, the open steers that may take its session over.
+ */
+export const read = Effect.fnUntraced(
+  function*<E, R>(source: Source<E, R>, event: Event): Effect.fn.Return<Slice, E, R> {
+    const turns: ReadonlyArray<TurnRow> = yield* Event.match(event, {
+      Check: ({ runner }) => runner?.online === true ? Effect.succeed([]) : source.unresolvedTurns,
+      Submit: ({ turn }) => source.turn(turn.key).pipe(Effect.map(Option.toArray)),
+      Ack: ({ key }) => source.turn(key).pipe(Effect.map(Option.toArray)),
+      Outcome: ({ outcome }) =>
+        source.turn(outcome.key).pipe(
+          Effect.flatMap(Option.match({
+            onNone: () => Effect.succeed([]),
+            onSome: (row) => source.unresolvedSteersInto(row.key).pipe(Effect.map((steers) => [row, ...steers]))
+          }))
+        ),
+      Hello: () => source.unresolvedTurns,
+      SessionOp: () => Effect.succeed([]),
+      SessionOpAnswer: () => Effect.succeed([]),
+      Alarm: () => Effect.succeed([])
+    })
 
-/** Unresolved turns and their sessions: what a check or hello may resolve or re-send. */
-const unresolvedSlice = (source: Source): Slice => {
-  const turns = source.unresolvedTurns()
+    const named: ReadonlyArray<string> = Event.match(event, {
+      Check: () => [],
+      Submit: ({ turn }) => [turn.session],
+      Ack: () => [],
+      Outcome: () => [],
+      Hello: () => [],
+      SessionOp: ({ session }) => [session],
+      SessionOpAnswer: ({ session }) => [session],
+      Alarm: () => []
+    })
 
-  return sliceOf(source, turns, turns.map((row) => row.session))
-}
+    const names = new Set([...named, ...turns.map((row) => row.session)])
+    const sessions = yield* Effect.forEach(names, source.session)
 
-/** Loads the rows `event`'s step reads. */
-export const read = (source: Source, event: Event): Slice =>
-  Event.match(event, {
-    Check: ({ runner }) => runner?.online === true ? sliceOf(source, [], []) : unresolvedSlice(source),
-    Submit: ({ turn }) => sliceOf(source, [source.turn(turn.key) ?? []].flat(), [turn.session]),
-    Ack: ({ key }) => sliceOf(source, [source.turn(key) ?? []].flat(), []),
-    Outcome: ({ outcome }) => {
-      const row = source.turn(outcome.key)
-
-      if (row === undefined) return sliceOf(source, [], [])
-
-      return sliceOf(source, [row, ...source.unresolvedSteersInto(row.key)], [row.session])
-    },
-    Hello: () => unresolvedSlice(source),
-    SessionOp: ({ session }) => sliceOf(source, [], [session]),
-    SessionOpAnswer: ({ session }) => sliceOf(source, [], [session]),
-    Alarm: () => sliceOf(source, [], [])
-  })
+    return { turns, sessions: sessions.flatMap(Option.toArray) }
+  }
+)
 
 // Stepping
 

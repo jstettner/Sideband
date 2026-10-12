@@ -3,6 +3,12 @@
   "version": "0.0.0",
   "private": true,
   "type": "module",
+  "description": "The process next to the agent: holds the WebSocket to a backend's relay and runs each turn against the agent (Bun).",
+  "exports": {
+    "./package.json": "./package.json",
+    "./*": "./src/*.ts",
+    "./internal/*": null
+  },
   "scripts": {
     "start": "bun src/main.ts",
     "build": "bun build src/main.ts --compile --outfile dist/sideband-runner"

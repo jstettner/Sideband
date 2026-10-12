@@ -28,6 +28,27 @@ A function returning an Effect is `Effect.fn("Module.name")` (or `Effect.fnUntra
 language service flags the ones that aren't. Code logs with `Effect.log*`, never `console`, except repo scripts,
 `src/scripts/`, and tests.
 
+## Alchemy
+
+The backend (`packages/backend-cloudflare`) is an Alchemy stack (`alchemy.run.ts`). Read `reference/alchemy`
+(source, `examples/`, and `website/src/content/docs/`) before writing Alchemy code.
+
+- **Logging:** Alchemy's bridge installs `Logger.consolePretty` outermost. Provide `JsonLogs` from `Layers.ts`
+  around each handler (the Worker's `fetch`, each Relay method and socket handler) so our logs are JSON.
+- **Stages:** `dev_*` (`bun run dev`) and `test_*` (`Test.make`) run on local workerd only. Never deploy one
+  outside dev mode, and keep `Test.make({ dev: true })` in Workers tests.
+- **Durable Object names are permanent.** In `Cloudflare.DurableObject<X, Shape>()("Name")`, `"Name"` is the
+  logical id, the binding name, and the class name. On each deploy Alchemy diffs a Worker's DO classes by logical
+  id, and a removed id becomes `deleted_classes`, which deletes every object of that class. Never change
+  `"Relay"`: add a new class and move the data yourself. Renaming the TypeScript identifier is safe.
+- **A DO's errors cross RPC only if they are tagged.** Alchemy rebuilds a failure as the class declared in the
+  DO's `errors` by its `_tag`. The protocol's errors have no tag, so the Relay fails with its own tagged errors
+  (`Lifecycle.ts`) and `RelayClient` maps them to the protocol's.
+- **Resources have no migrations; databases do.** Alchemy diffs the declared resources against stack state. Each
+  Durable Object's SQLite is migrated by the object itself when it activates (`Relay/Migrations.ts`), because
+  every object has its own database. A migration is editable until it reaches `main`; after that it is
+  forward-only (`Migrator` records ids without a checksum).
+
 ## Comments and docs
 
 - A comment adds what the code can't show: an invariant, an ordering and why it is safe, behavior across

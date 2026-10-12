@@ -18,14 +18,14 @@ watch ──POST /v1/turn──▶ backend ──▶ transcription provider
 
 ## Layout
 
-| Path                           | What                                                                                       |
-| ------------------------------ | ------------------------------------------------------------------------------------------ |
-| `packages/protocol/`           | The contract: HTTP API (watch ↔ backend), runner WebSocket protocol, shared Effect Schemas |
-| `packages/agents/`             | Agents a runner can drive: the `Agent` service, adapters (Echo, Hermes), their contract    |
-| `packages/transcription/`      | Speech to text for backends: the `Transcription` service, WAV canonicalization, providers  |
-| `watch/`                       | watchOS app + widgets (Swift/SwiftUI, project generated with XcodeGen)                     |
-| `packages/backend-cloudflare/` | Reference backend: Cloudflare Worker + Durable Object (Hono + Effect)                      |
-| `packages/runner/`             | Long-lived process next to the agent (Bun + Effect)                                        |
+| Path                           | What                                                                                        |
+| ------------------------------ | ------------------------------------------------------------------------------------------- |
+| `packages/protocol/`           | The contract: HTTP API (watch ↔ backend), runner WebSocket protocol, shared Effect Schemas  |
+| `packages/agents/`             | Agents a runner can drive: the `Agent` service, adapters (Echo, Hermes), their contract     |
+| `packages/transcription/`      | Speech to text for backends: the `Transcription` service, WAV canonicalization, providers   |
+| `watch/`                       | watchOS app + widgets (Swift/SwiftUI, project generated with XcodeGen)                      |
+| `packages/backend-cloudflare/` | Reference backend: Cloudflare Worker + Relay Durable Object (Effect, deployed with Alchemy) |
+| `packages/runner/`             | Long-lived process next to the agent (Bun + Effect)                                         |
 
 Write your own backend or runner against `packages/protocol/`.
 
@@ -41,7 +41,12 @@ bun run lint      # oxlint + dprint check + the openapi.json check (dprint downl
 bun run test      # vitest run
 bun run format    # dprint fmt
 bun run openapi   # regenerate packages/protocol/openapi.json
+bun run dev       # the backend on local workerd (alchemy dev, stage dev_$USER), at http://localhost:1337
 ```
+
+`bun run test` includes the backend's Workers tests, which deploy the stack to local workerd (stage
+`test_$USER`) and run the real runner against it. Neither `dev` nor the tests need a Cloudflare account.
+Point a local runner at the dev backend with `SIDEBAND_BACKEND_URL=ws://localhost:1337`.
 
 The pre-commit hook (`.githooks/pre-commit`, enabled by `bun install` through `core.hooksPath`) runs
 `check`, `lint`, and `test`.
@@ -56,7 +61,7 @@ Under `CI`, the sync is skipped.
 
 Local config is never committed. Copy the `*.example` files:
 
-- `packages/backend-cloudflare/.env.example` (Cloudflare account), `.dev.vars.example`
+- `packages/backend-cloudflare/.env.example` (the tokens and Aqua key `bun run dev` binds)
 - `packages/runner/.env.example`, `packages/runner/launchd/com.sideband.runner.plist.example`
 - `watch/Config/Local.xcconfig.example`
 

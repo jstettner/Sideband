@@ -14,7 +14,7 @@
   "excludes": [
     "reference/**",
     "**/node_modules",
-    "**/.wrangler",
+    "**/.alchemy",
     "**/.tsbuild",
     "bun.lock",
     ".local/**",

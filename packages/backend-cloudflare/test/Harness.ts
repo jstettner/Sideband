@@ -9,7 +9,7 @@
  */
 import { expect } from "@effect/vitest"
 import type { Runner } from "@sideband/protocol"
-import { Duration } from "effect"
+import { Duration, Effect, Option } from "effect"
 import * as Lifecycle from "../src/Relay/Lifecycle.ts"
 
 /** A valid idempotency key (16+ characters) named `name`. */
@@ -62,11 +62,11 @@ export const make = (): Harness => {
   const unresolved = () =>
     [...turns.values()].filter((row) => !Lifecycle.isResolved(row)).toSorted((a, b) => a.created_at - b.created_at)
 
-  const source: Lifecycle.Source = {
-    turn: (k) => turns.get(k),
-    session: (name) => sessions.get(name),
-    unresolvedTurns: unresolved,
-    unresolvedSteersInto: (k) => unresolved().filter((row) => row.steer_into === k)
+  const source: Lifecycle.Source<never, never> = {
+    turn: (k) => Effect.sync(() => Option.fromUndefinedOr(turns.get(k))),
+    session: (name) => Effect.sync(() => Option.fromUndefinedOr(sessions.get(name))),
+    unresolvedTurns: Effect.sync(unresolved),
+    unresolvedSteersInto: (k) => Effect.sync(() => unresolved().filter((row) => row.steer_into === k))
   }
 
   const checkInvariants = (before: ReadonlyMap<string, Lifecycle.TurnRow>) => {
@@ -103,7 +103,7 @@ export const make = (): Harness => {
 
   const run = <A>(event: Lifecycle.Event, step: (slice: Lifecycle.Slice, now: number) => Lifecycle.Step<A>) => {
     const before = new Map(turns)
-    const result = step(Lifecycle.read(source, event), now)
+    const result = step(Effect.runSync(Lifecycle.read(source, event)), now)
 
     for (const row of result.writes.turns) turns.set(row.key, row)
 

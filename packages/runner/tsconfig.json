@@ -1,14 +1,11 @@
 {
   "$schema": "https://json.schemastore.org/tsconfig",
   "extends": "../../tsconfig.base.json",
-  "include": ["src", "test"],
+  "include": ["src", "test", "package.json"],
   "references": [{ "path": "../protocol" }, { "path": "../agents" }],
   "compilerOptions": {
-    "types": ["bun"],
-    // Nothing imports the runner, so it is type-checked without emitting declarations.
-    "composite": false,
-    "declaration": false,
-    "emitDeclarationOnly": false,
-    "noEmit": true
+    // The backend's Workers tests run the real connection and executor against a local relay, so the runner
+    // is a referenced project.
+    "types": ["bun"]
   }
 }

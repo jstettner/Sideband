@@ -1,27 +1,38 @@
-import { constantTimeEqual } from "./Auth.ts"
+import type * as Cloudflare from "alchemy/Cloudflare"
+import { Effect, type Redacted } from "effect"
+import { HttpRouter, HttpServerRequest, HttpServerResponse } from "effect/http"
+import { OWNER } from "../Relay/RelayClient.ts"
+import type { RelayDO } from "../Relay/RelayDO.ts"
+import { matches } from "./Auth.ts"
 
 export const CONNECT_PATH = "/v1/runner/connect"
 
 /**
- * `GET /v1/runner/connect`: checks the runner token, then hands the WebSocket upgrade to the
- * relay. Not part of the client HttpApi; see protocol/runner.md.
+ * `GET /v1/runner/connect`: checks the runner token, then hands the WebSocket upgrade to the relay. Not
+ * part of the client HttpApi; see protocol/runner.md.
  */
-export function connect(request: Request, env: Cloudflare.Env): Promise<Response> | Response {
-  const token = request.headers.get("authorization")?.match(/^Bearer (.+)$/iu)?.[1]
+export const route = (relays: Cloudflare.DurableObject<RelayDO>, runnerToken: Redacted.Redacted<string>) =>
+  HttpRouter.add(
+    "*",
+    CONNECT_PATH,
+    Effect.gen(function*() {
+      const request = yield* HttpServerRequest.HttpServerRequest
+      const token = request.headers["authorization"]?.match(/^Bearer (.+)$/iu)?.[1]
 
-  if (!token || env.RUNNER_TOKEN === "" || !constantTimeEqual(token, env.RUNNER_TOKEN)) {
-    return Response.json(
-      { error: "unauthorized", message: "missing or invalid runner token", retryable: false },
-      { status: 401 }
-    )
-  }
+      if (token === undefined || !matches(token, runnerToken)) {
+        return HttpServerResponse.jsonUnsafe(
+          { error: "unauthorized", message: "missing or invalid runner token", retryable: false },
+          { status: 401 }
+        )
+      }
 
-  if (request.method !== "GET" || request.headers.get("upgrade")?.toLowerCase() !== "websocket") {
-    return Response.json(
-      { error: "invalid_request", message: "expected a WebSocket upgrade", retryable: false },
-      { status: 400 }
-    )
-  }
+      if (request.method !== "GET" || request.headers["upgrade"]?.toLowerCase() !== "websocket") {
+        return HttpServerResponse.jsonUnsafe(
+          { error: "invalid_request", message: "expected a WebSocket upgrade", retryable: false },
+          { status: 400 }
+        )
+      }
 
-  return env.RELAY.getByName("owner").fetch(request)
-}
+      return yield* relays.getByName(OWNER).fetch(request)
+    }).pipe(Effect.withSpan("Runner.connect"))
+  )
