@@ -1,0 +1,12 @@
+#!/bin/sh
+# Runs the repo's gate before every commit: the same three commands every change is verified with.
+# `bun install` points git here (`core.hooksPath`). The checks run on the working tree, not only on
+# what is staged.
+set -e
+# Git sets variables that name this repository while the hook runs (`git commit -a` points
+# GIT_INDEX_FILE at the commit's temporary index). The checks don't need them, and a test that runs git
+# in a repository of its own would otherwise write into this commit.
+unset $(git rev-parse --local-env-vars)
+bun run check
+bun run lint
+bun run test

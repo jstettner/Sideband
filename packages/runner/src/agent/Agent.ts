@@ -71,30 +71,35 @@ export class Agent extends Context.Service<Agent, {
 
       return Agent.of({
         name: "echo",
-        runTurn: ({ key, agentSessionId, transcript }) =>
-          Effect.gen(function*() {
-            const turn = { lateAt: Date.now() + delayMs * 0.75, steers: [], late: [] }
-            running.set(key, turn)
-            yield* Effect.sleep(delayMs).pipe(Effect.ensuring(Effect.sync(() => running.delete(key))))
-            return {
-              _tag: "Completed" as const,
-              agentSessionId: agentSessionId ?? newEchoSession(),
-              watchText: [transcript, ...turn.steers.map((steer) => `+ ${steer}`)].join("\n"),
-              pendingSteer: turn.late.length > 0 ? turn.late.join("\n") : undefined
-            }
-          }),
-        steerTurn: ({ key, transcript }) =>
+        runTurn: Effect.fn("Agent.runTurn")(function*({ key, agentSessionId, transcript }) {
+          const turn = { lateAt: Date.now() + delayMs * 0.75, steers: [], late: [] }
+          running.set(key, turn)
+          yield* Effect.sleep(delayMs).pipe(Effect.ensuring(Effect.sync(() => running.delete(key))))
+
+          return {
+            _tag: "Completed" as const,
+            agentSessionId: agentSessionId ?? newEchoSession(),
+            watchText: [transcript, ...turn.steers.map((steer) => `+ ${steer}`)].join("\n"),
+            pendingSteer: turn.late.length > 0 ? turn.late.join("\n") : undefined
+          }
+        }),
+        steerTurn: Effect.fn("Agent.steerTurn")(({ key, transcript }) =>
           Effect.sync(() => {
             const turn = running.get(key)
+
             if (!turn) return "NotRunning"
+
             if (Date.now() < turn.lateAt) turn.steers.push(transcript)
             else turn.late.push(transcript)
+
             return "Steered"
-          }),
-        sessionOp: (op) =>
-          op === "new"
-            ? Effect.succeed({ agentSessionId: newEchoSession() })
-            : Effect.fail(new NotSupported({ message: "echo has no context to compact" }))
+          })
+        ),
+        sessionOp: Effect.fn("Agent.sessionOp")(function*(op) {
+          if (op !== "new") return yield* new NotSupported({ message: "echo has no context to compact" })
+
+          return { agentSessionId: newEchoSession() }
+        })
       })
     })
   )

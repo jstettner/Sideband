@@ -1,0 +1,10 @@
+{
+  "$schema": "https://json.schemastore.org/tsconfig",
+  "extends": "../tsconfig.base.json",
+  "include": ["*.ts", "../vitest.config.ts", "../vitest.setup.ts"],
+  "compilerOptions": {
+    "rootDir": "..",
+    // Repo scripts run on Bun (`bun scripts/….ts`).
+    "types": ["bun"]
+  }
+}

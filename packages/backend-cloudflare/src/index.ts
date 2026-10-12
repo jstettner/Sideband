@@ -27,8 +27,8 @@ const Api = HttpApiBuilder.layer(SidebandApi).pipe(
 const { handler } = HttpRouter.toWebHandler(Api)
 
 export default {
-  fetch: async (request, env) =>
+  fetch: async (request, bindings) =>
     new URL(request.url).pathname === Runner.CONNECT_PATH
-      ? Runner.connect(request, env)
+      ? Runner.connect(request, bindings)
       : envelope(await handler(request))
 } satisfies ExportedHandler<Cloudflare.Env>

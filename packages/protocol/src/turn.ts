@@ -18,6 +18,7 @@ export const AudioTurnBody = Schema.Uint8Array.pipe(
 export const TextTurnBody = Schema.Struct({
   text: Schema.NonEmptyString
 })
+
 export type TextTurnBody = typeof TextTurnBody.Type
 
 const TurnFields = {
@@ -42,6 +43,7 @@ export const TurnCompleted = Schema.Struct({
   /** Agent context-window usage after this turn, when the agent reports it. */
   context: Schema.optionalKey(ContextUsage)
 })
+
 export type TurnCompleted = typeof TurnCompleted.Type
 
 /** Accepted and still running. Fetch the outcome with `GET /v1/turns/{idempotency_key}`. */
@@ -50,6 +52,7 @@ export const TurnRunning = Schema.Struct({
   ...TurnFields,
   retry_after_ms: Schema.Int.check(Schema.isGreaterThanOrEqualTo(0))
 }).pipe(HttpApiSchema.status(202))
+
 export type TurnRunning = typeof TurnRunning.Type
 
 /** The agent paused for an approval that can't be given from the watch yet. */
@@ -58,6 +61,7 @@ export const TurnNeedsApproval = Schema.Struct({
   ...TurnFields,
   message: Schema.String
 })
+
 export type TurnNeedsApproval = typeof TurnNeedsApproval.Type
 
 /**
@@ -70,6 +74,7 @@ export const TurnFailed = Schema.Struct({
   code: Schema.Literals(["agent_failed", "interrupted"]),
   message: Schema.String
 })
+
 export type TurnFailed = typeof TurnFailed.Type
 
 /**
@@ -81,6 +86,7 @@ export const TurnUnknown = Schema.Struct({
   ...TurnFields,
   message: Schema.String
 })
+
 export type TurnUnknown = typeof TurnUnknown.Type
 
 /**
@@ -93,6 +99,7 @@ export const TurnMerged = Schema.Struct({
   /** Idempotency key of the turn whose outcome answers this one. */
   into: IdempotencyKey
 })
+
 export type TurnMerged = typeof TurnMerged.Type
 
 /** Every turn outcome, discriminated by `status`. Clients treat unknown statuses as errors. */
@@ -104,4 +111,5 @@ export const TurnState = Schema.Union([
   TurnUnknown,
   TurnMerged
 ]).pipe(Schema.toTaggedUnion("status"))
+
 export type TurnState = typeof TurnState.Type

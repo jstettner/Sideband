@@ -12,6 +12,7 @@ import { Executor } from "./turns/Executor.ts"
 const AgentLayer = Layer.unwrap(
   Effect.gen(function*() {
     const { agent } = yield* RunnerConfig
+
     switch (agent) {
       case "echo":
         return Agent.layerEcho

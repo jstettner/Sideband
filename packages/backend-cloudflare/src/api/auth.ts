@@ -8,7 +8,9 @@ export function constantTimeEqual(a: string, b: string): boolean {
   const x = encoder.encode(a)
   const y = encoder.encode(b)
   let diff = x.length ^ y.length
+
   for (let i = 0; i < Math.max(x.length, y.length); i++) diff |= (x[i] ?? 0) ^ (y[i] ?? 0)
+
   return diff === 0
 }
 
@@ -21,8 +23,11 @@ const unauthorized = new Unauthorized({
 /** Single-user MVP: one watch token, one principal. */
 export const layer = (watchToken: string) =>
   Layer.succeed(Authorization)({
-    bearer: (effect, { credential }) =>
-      watchToken !== "" && constantTimeEqual(Redacted.value(credential), watchToken)
-        ? Effect.provideService(effect, Principal, { userId: "owner" })
-        : Effect.fail(unauthorized)
+    bearer: Effect.fn("Authorization.bearer")(function*(effect, { credential }) {
+      if (watchToken === "" || !constantTimeEqual(Redacted.value(credential), watchToken)) {
+        return yield* unauthorized
+      }
+
+      return yield* Effect.provideService(effect, Principal, { userId: "owner" })
+    })
   })

@@ -1,0 +1,38 @@
+# The toolchain every CI job starts from, as a developer's clean clone has it: Bun at the root
+# `packageManager` pin, Node for Vitest, and `bun install` from the lockfile.
+#
+# Install runs `prepare` (the @effect/tsgo TypeScript patch, then the git hooks installer, which only sets
+# `core.hooksPath` in the checkout) and `postinstall` (sync-reference, which skips the reference clones
+# because GitHub sets `CI`).
+name: Setup
+description: Bun, Node, and the workspace's dependencies
+
+runs:
+  using: composite
+  steps:
+    - uses: oven-sh/setup-bun@0c5077e51419868618aeaa5fe8019c62421857d6 # v2.2.0
+      with:
+        bun-version-file: package.json
+
+    # The README's minimum; Vitest needs 22.12+, which the latest 22.x is.
+    - uses: actions/setup-node@949feb2413d6458794dcd2491c4babbbce0c15c1 # v7.1.0
+      with:
+        node-version: 22
+
+    - id: bun
+      shell: bash
+      run: echo "version=$(bun --version)" >> "$GITHUB_OUTPUT"
+
+    # The installed tree itself, not Bun's download cache: from a restored tree `bun install` has nothing
+    # to link. Keyed on everything that decides the tree; an older tree from the prefix is brought up to
+    # date by the install below.
+    - uses: actions/cache@55cc8345863c7cc4c66a329aec7e433d2d1c52a9 # v6.1.0
+      with:
+        path: |
+          node_modules
+          packages/*/node_modules
+        key: ${{ runner.os }}-${{ runner.arch }}-node-modules-bun${{ steps.bun.outputs.version }}-${{ hashFiles('bun.lock') }}
+        restore-keys: ${{ runner.os }}-${{ runner.arch }}-node-modules-bun${{ steps.bun.outputs.version }}-
+
+    - shell: bash
+      run: bun install --frozen-lockfile

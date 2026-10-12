@@ -9,6 +9,7 @@ export const IdempotencyKey = Schema.String.check(
 ).annotate({
   description: "16-128 characters of [A-Za-z0-9_-]. A UUID is fine."
 })
+
 export type IdempotencyKey = typeof IdempotencyKey.Type
 
 /**
@@ -20,6 +21,7 @@ export const SessionName = Schema.String.check(
 ).annotate({
   description: "Lowercase [a-z0-9_-], 1-64 characters, starting with a letter or digit."
 })
+
 export type SessionName = typeof SessionName.Type
 
 const TokenCount = Schema.Int.check(Schema.isGreaterThanOrEqualTo(0))
@@ -29,10 +31,12 @@ export const ContextUsage = Schema.Struct({
   used_tokens: TokenCount,
   limit_tokens: TokenCount
 })
+
 export type ContextUsage = typeof ContextUsage.Type
 
 /** The agent behind the backend, for display. Clients must not hardcode the agent name. */
 export const AgentInfo = Schema.Struct({
   name: Schema.String
 })
+
 export type AgentInfo = typeof AgentInfo.Type

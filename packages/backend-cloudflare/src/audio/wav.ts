@@ -5,6 +5,7 @@
  */
 
 const PCM = 0x0001
+
 const EXTENSIBLE = 0xfffe
 
 export const SAMPLE_RATE = 16_000
@@ -26,8 +27,10 @@ export function canonicalWav(input: Uint8Array): Uint8Array {
     const id = tag(at)
     const size = view.getUint32(at + 4, true)
     const body = at + 8
+
     if (id === "fmt " && size >= 16) {
       let formatTag = view.getUint16(body, true)
+
       // Extensible: the real format is the first two bytes of the subformat GUID.
       if (formatTag === EXTENSIBLE && size >= 40) formatTag = view.getUint16(body + 24, true)
       format = {
@@ -41,11 +44,14 @@ export function canonicalWav(input: Uint8Array): Uint8Array {
       data = input.subarray(body, Math.min(body + size, input.byteLength))
       break
     }
+
     at = body + size + (size & 1)
   }
 
   if (!format) throw new InvalidWav("missing fmt chunk")
+
   if (!data) throw new InvalidWav("missing data chunk")
+
   if (format.tag !== PCM || format.channels !== 1 || format.rate !== SAMPLE_RATE || format.bits !== 16) {
     throw new InvalidWav(
       `expected 16 kHz mono PCM16, got format ${format.tag}, ${format.channels} ch, ${format.rate} Hz, ${format.bits} bit`
@@ -70,5 +76,6 @@ export function canonicalWav(input: Uint8Array): Uint8Array {
   ascii(36, "data")
   header.setUint32(40, length, true)
   out.set(data.subarray(0, length), 44)
+
   return out
 }

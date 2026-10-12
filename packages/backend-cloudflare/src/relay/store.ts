@@ -1,3 +1,4 @@
+/* oxlint-disable -- Replaced by SQL functions over Effect's SqlClient. */
 import type { Runner } from "@sideband/protocol"
 
 /**
@@ -80,7 +81,8 @@ export class Store {
     this.kv = storage.kv
     storage.transactionSync(() => {
       this.sql.exec("CREATE TABLE IF NOT EXISTS schema_version (version INTEGER NOT NULL)")
-      const version = this.sql.exec<{ version: number }>("SELECT version FROM schema_version").toArray()[0]?.version ?? 0
+      const version = this.sql.exec<{ version: number }>("SELECT version FROM schema_version").toArray()[0]?.version ??
+        0
       for (const migration of migrations.slice(version)) this.sql.exec(migration)
       this.sql.exec("DELETE FROM schema_version")
       this.sql.exec("INSERT INTO schema_version (version) VALUES (?)", migrations.length)
@@ -111,13 +113,17 @@ export class Store {
    * Inserts a new turn and makes it its session's active turn. A steer (`steerInto`) leaves the
    * active turn alone: it's answered through that turn.
    */
-  claim(turn: {
-    readonly key: string
-    readonly session: string
-    readonly payloadHash: string
-    readonly transcript: string
-    readonly transcriptRaw?: string | undefined
-  }, now: number, steerInto?: string): void {
+  claim(
+    turn: {
+      readonly key: string
+      readonly session: string
+      readonly payloadHash: string
+      readonly transcript: string
+      readonly transcriptRaw?: string | undefined
+    },
+    now: number,
+    steerInto?: string
+  ): void {
     this.sql.exec(
       `INSERT INTO turns (key, session, payload_hash, transcript, transcript_raw, state, steer_into, created_at, updated_at)
        VALUES (?, ?, ?, ?, ?, 'pending', ?, ?, ?)`,
@@ -172,7 +178,12 @@ export class Store {
       row.key
     )
     if (outcome && (outcome.type === "result" || outcome.type === "needs_approval")) {
-      this.setAgentSession(row.session, outcome.agent_session_id, outcome.type === "result" ? outcome.context : undefined, now)
+      this.setAgentSession(
+        row.session,
+        outcome.agent_session_id,
+        outcome.type === "result" ? outcome.context : undefined,
+        now
+      )
     }
   }
 

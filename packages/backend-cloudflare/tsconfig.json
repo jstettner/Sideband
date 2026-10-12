@@ -1,7 +1,14 @@
 {
+  "$schema": "https://json.schemastore.org/tsconfig",
   "extends": "../../tsconfig.base.json",
+  "include": ["src", "test"],
+  "references": [{ "path": "../protocol" }],
   "compilerOptions": {
-    "types": ["@cloudflare/workers-types"]
-  },
-  "include": ["src"]
+    "types": ["@cloudflare/workers-types"],
+    // Nothing imports the backend, so it is type-checked without emitting declarations.
+    "composite": false,
+    "declaration": false,
+    "emitDeclarationOnly": false,
+    "noEmit": true
+  }
 }

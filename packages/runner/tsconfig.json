@@ -1,8 +1,14 @@
 {
+  "$schema": "https://json.schemastore.org/tsconfig",
   "extends": "../../tsconfig.base.json",
+  "include": ["src", "test"],
+  "references": [{ "path": "../protocol" }],
   "compilerOptions": {
     "types": ["bun"],
-    "resolveJsonModule": true
-  },
-  "include": ["src"]
+    // Nothing imports the runner, so it is type-checked without emitting declarations.
+    "composite": false,
+    "declaration": false,
+    "emitDeclarationOnly": false,
+    "noEmit": true
+  }
 }

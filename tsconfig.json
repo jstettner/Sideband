@@ -1,0 +1,12 @@
+{
+  "$schema": "https://json.schemastore.org/tsconfig",
+  // `bun run check` = `tsc -b` over these projects only. reference/ is never part of the build.
+  "files": [],
+  "references": [
+    { "path": "packages/protocol" },
+    { "path": "packages/protocol/tsconfig.node.json" },
+    { "path": "packages/runner" },
+    { "path": "packages/backend-cloudflare" },
+    { "path": "scripts" }
+  ]
+}

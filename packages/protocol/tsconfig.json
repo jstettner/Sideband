@@ -1,7 +1,8 @@
 {
+  "$schema": "https://json.schemastore.org/tsconfig",
   "extends": "../../tsconfig.base.json",
-  "compilerOptions": {
-    "types": ["bun"]
-  },
-  "include": ["src", "scripts", "test"]
+  // `types` stays [] (from the base): the protocol is platform-free, so no Node, Bun, or Workers globals.
+  // Its scripts and tests run on Node APIs, so they are checked by tsconfig.node.json instead.
+  "include": ["src"],
+  "exclude": ["src/scripts"]
 }

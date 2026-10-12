@@ -1,3 +1,4 @@
+/* oxlint-disable -- Replaced by a connection on effect/socket. */
 import { Runner } from "@sideband/protocol"
 import { Data, Effect, Exit, Queue, Redacted, Schedule, Schema } from "effect"
 import pkg from "../../package.json" with { type: "json" }
@@ -140,7 +141,9 @@ export const run = Effect.gen(function*() {
     if (closed.opened) backoff = MIN_BACKOFF_MS
     const delay = Math.round(backoff * (0.5 + Math.random() / 2))
     yield* Effect.logWarning(
-      `${closed.opened ? "disconnected" : "couldn't connect"} (${closed.code} ${closed.reason}); retrying in ${delay} ms`
+      `${
+        closed.opened ? "disconnected" : "couldn't connect"
+      } (${closed.code} ${closed.reason}); retrying in ${delay} ms`
     )
     yield* Effect.sleep(delay)
     backoff = Math.min(backoff * 2, MAX_BACKOFF_MS)

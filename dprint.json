@@ -1,0 +1,32 @@
+{
+  "$schema": "https://dprint.dev/schemas/v0.json",
+  "incremental": true,
+  "indentWidth": 2,
+  "lineWidth": 120,
+  "newLineKind": "lf",
+  "typescript": {
+    "semiColons": "asi",
+    "quoteStyle": "alwaysDouble",
+    "trailingCommas": "never",
+    "operatorPosition": "maintain",
+    "arrowFunction.useParentheses": "force"
+  },
+  "excludes": [
+    "reference/**",
+    "**/node_modules",
+    "**/.wrangler",
+    "**/.tsbuild",
+    "bun.lock",
+    ".local/**",
+    "tools/oxlint/anti-slop/**",
+    // Generated: `bun run openapi:check` compares it byte for byte with the generator's output.
+    "packages/protocol/openapi.json",
+    // Swift and Xcode-generated files (asset catalogs) aren't formatted by dprint.
+    "watch/**"
+  ],
+  "plugins": [
+    "https://plugins.dprint.dev/typescript-0.93.4.wasm",
+    "https://plugins.dprint.dev/markdown-0.20.0.wasm",
+    "https://plugins.dprint.dev/json-0.21.1.wasm"
+  ]
+}

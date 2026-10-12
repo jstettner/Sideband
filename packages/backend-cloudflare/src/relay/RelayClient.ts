@@ -1,3 +1,4 @@
+/* oxlint-disable -- Goes away once Durable Object RPC carries typed errors. */
 import {
   AgentOffline,
   IdempotencyConflict,
@@ -48,11 +49,18 @@ export class RelayClient extends Context.Service<RelayClient, {
       }).pipe(Effect.tapError((e) => Effect.logWarning(e.message)))
 
     return Layer.succeed(RelayClient)({
-      submit: (turn) => call((relay) => relay.submit(turn)).pipe(Effect.flatMap(accept(TurnState))),
-      get: (key) => call((relay) => relay.get(key)).pipe(Effect.flatMap(accept(TurnState))),
-      status: (session) => call((relay) => relay.status(session)).pipe(Effect.flatMap(decode(Status))),
-      sessionOp: (session, op) =>
+      submit: Effect.fn("RelayClient.submit")((turn) =>
+        call((relay) => relay.submit(turn)).pipe(Effect.flatMap(accept(TurnState)))
+      ),
+      get: Effect.fn("RelayClient.get")((key) =>
+        call((relay) => relay.get(key)).pipe(Effect.flatMap(accept(TurnState)))
+      ),
+      status: Effect.fn("RelayClient.status")((session) =>
+        call((relay) => relay.status(session)).pipe(Effect.flatMap(decode(Status)))
+      ),
+      sessionOp: Effect.fn("RelayClient.sessionOp")((session, op) =>
         call((relay) => relay.sessionOp(session, op)).pipe(Effect.flatMap(accept(SessionState)))
+      )
     })
   }
 }

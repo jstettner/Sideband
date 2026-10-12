@@ -10,7 +10,9 @@ import { AgentInfo, ContextUsage, IdempotencyKey, SessionName } from "./common.t
 
 /** Current version. 2 added steering (`steer`, `merged`); relays also accept 1. */
 export const RUNNER_PROTOCOL_VERSION = 2
+
 export const HEARTBEAT_PING = "ping"
+
 export const HEARTBEAT_PONG = "pong"
 
 const OpId = Schema.String.check(Schema.isPattern(/^[A-Za-z0-9_-]{1,128}$/u))
@@ -26,6 +28,7 @@ export const Hello = Schema.Struct({
   /** Turns this runner process is still executing, so the relay doesn't re-send them. */
   in_flight: Schema.Array(IdempotencyKey)
 })
+
 export type Hello = typeof Hello.Type
 
 /** The runner received a turn and handed it to the agent. */
@@ -33,6 +36,7 @@ export const Ack = Schema.Struct({
   type: Schema.tag("ack"),
   key: IdempotencyKey
 })
+
 export type Ack = typeof Ack.Type
 
 export const TurnResult = Schema.Struct({
@@ -45,6 +49,7 @@ export const TurnResult = Schema.Struct({
   full_text: Schema.optionalKey(Schema.String),
   context: Schema.optionalKey(ContextUsage)
 })
+
 export type TurnResult = typeof TurnResult.Type
 
 export const TurnNeedsApproval = Schema.Struct({
@@ -53,6 +58,7 @@ export const TurnNeedsApproval = Schema.Struct({
   agent_session_id: Schema.String,
   message: Schema.String
 })
+
 export type TurnNeedsApproval = typeof TurnNeedsApproval.Type
 
 export const TurnFailed = Schema.Struct({
@@ -61,6 +67,7 @@ export const TurnFailed = Schema.Struct({
   code: Schema.Literals(["agent_failed", "interrupted"]),
   message: Schema.String
 })
+
 export type TurnFailed = typeof TurnFailed.Type
 
 /**
@@ -72,6 +79,7 @@ export const TurnMerged = Schema.Struct({
   key: IdempotencyKey,
   into: IdempotencyKey
 })
+
 export type TurnMerged = typeof TurnMerged.Type
 
 export const SessionOpResult = Schema.Struct({
@@ -80,6 +88,7 @@ export const SessionOpResult = Schema.Struct({
   agent_session_id: Schema.String,
   context: Schema.optionalKey(ContextUsage)
 })
+
 export type SessionOpResult = typeof SessionOpResult.Type
 
 export const SessionOpFailed = Schema.Struct({
@@ -88,6 +97,7 @@ export const SessionOpFailed = Schema.Struct({
   code: Schema.Literals(["not_supported", "agent_failed"]),
   message: Schema.String
 })
+
 export type SessionOpFailed = typeof SessionOpFailed.Type
 
 export const RunnerMessage = Schema.Union([
@@ -100,6 +110,7 @@ export const RunnerMessage = Schema.Union([
   SessionOpResult,
   SessionOpFailed
 ]).pipe(Schema.toTaggedUnion("type"))
+
 export type RunnerMessage = typeof RunnerMessage.Type
 
 // relay → runner
@@ -113,6 +124,7 @@ export const Turn = Schema.Struct({
   agent_session_id: Schema.optionalKey(Schema.String),
   transcript: Schema.String
 })
+
 export type Turn = typeof Turn.Type
 
 /**
@@ -129,6 +141,7 @@ export const Steer = Schema.Struct({
   agent_session_id: Schema.optionalKey(Schema.String),
   transcript: Schema.String
 })
+
 export type Steer = typeof Steer.Type
 
 export const SessionOp = Schema.Struct({
@@ -138,7 +151,9 @@ export const SessionOp = Schema.Struct({
   session: SessionName,
   agent_session_id: Schema.optionalKey(Schema.String)
 })
+
 export type SessionOp = typeof SessionOp.Type
 
 export const RelayMessage = Schema.Union([Turn, Steer, SessionOp]).pipe(Schema.toTaggedUnion("type"))
+
 export type RelayMessage = typeof RelayMessage.Type

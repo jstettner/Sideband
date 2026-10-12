@@ -3,15 +3,15 @@
 The contract between the pieces of Sideband. The watch app talks only to this, so you can
 write your own backend (or runner, or client) against it.
 
-| File | What |
-| --- | --- |
-| `openapi.json` | HTTP API, client ↔ backend. Generated from `src/Api.ts` |
-| `runner.md` | WebSocket protocol, backend relay ↔ runner |
-| `examples/` | Sample payloads. Every file is decoded against its schema in `test/` |
-| `src/` | Effect Schemas and the `HttpApi` definition, shared by our backend and runner |
+| File           | What                                                                          |
+| -------------- | ----------------------------------------------------------------------------- |
+| `openapi.json` | HTTP API, client ↔ backend. Generated from `src/Api.ts`                       |
+| `runner.md`    | WebSocket protocol, backend relay ↔ runner                                    |
+| `examples/`    | Sample payloads. Every file is decoded against its schema in `test/`          |
+| `src/`         | Effect Schemas and the `HttpApi` definition, shared by our backend and runner |
 
-`src/` is the source of truth. After changing it run `bun run gen` and commit `openapi.json`;
-`bun run check` fails if they've drifted.
+`src/` is the source of truth. After changing it run `bun run openapi` (from the repo root) and commit
+`openapi.json`; `bun run lint` fails if they've drifted.
 
 ## HTTP API
 
@@ -53,14 +53,14 @@ curl -X POST "$BACKEND/v1/turn?session=main" \
 
 `POST /v1/turn` and `GET /v1/turns/{key}` return the same `TurnState`, discriminated by `status`:
 
-| `status` | HTTP | Meaning |
-| --- | --- | --- |
-| `completed` | 200 | `watch_text` to display; optional `speak_text`, `full_text`, `context` |
-| `running` | 202 | Still in flight. Poll `GET /v1/turns/{key}` after `retry_after_ms` |
-| `needs_approval` | 200 | The agent paused for an approval the client can't give yet |
-| `failed` | 200 | The agent ran it and it failed (`agent_failed`) or was cut short (`interrupted`) |
-| `unknown` | 200 | Contact with the agent was lost; it may or may not have run. Never re-sent |
-| `merged` | 200 | Folded into the turn `into`, which was already running; that turn's outcome answers it |
+| `status`         | HTTP | Meaning                                                                                |
+| ---------------- | ---- | -------------------------------------------------------------------------------------- |
+| `completed`      | 200  | `watch_text` to display; optional `speak_text`, `full_text`, `context`                 |
+| `running`        | 202  | Still in flight. Poll `GET /v1/turns/{key}` after `retry_after_ms`                     |
+| `needs_approval` | 200  | The agent paused for an approval the client can't give yet                             |
+| `failed`         | 200  | The agent ran it and it failed (`agent_failed`) or was cut short (`interrupted`)       |
+| `unknown`        | 200  | Contact with the agent was lost; it may or may not have run. Never re-sent             |
+| `merged`         | 200  | Folded into the turn `into`, which was already running; that turn's outcome answers it |
 
 ### Steering
 
@@ -99,19 +99,19 @@ A request that was refused (no turn was created) gets a non-2xx status and:
 { "error": "agent_offline", "message": "The agent is offline. Nothing was run.", "retryable": true }
 ```
 
-| `error` | HTTP | `retryable` |
-| --- | --- | --- |
-| `invalid_request` | 400 | false |
-| `unauthorized` | 401 | false |
-| `not_found` | 404 | false |
-| `session_busy` | 409 | true |
-| `payload_too_large` | 413 | false |
-| `unsupported_media_type` | 415 | false |
-| `idempotency_conflict` | 422 | false |
-| `internal_error` | 500 | true |
-| `not_supported` | 501 | false |
-| `transcription_failed` | 502 | true |
-| `agent_offline` | 503 | true |
+| `error`                  | HTTP | `retryable` |
+| ------------------------ | ---- | ----------- |
+| `invalid_request`        | 400  | false       |
+| `unauthorized`           | 401  | false       |
+| `not_found`              | 404  | false       |
+| `session_busy`           | 409  | true        |
+| `payload_too_large`      | 413  | false       |
+| `unsupported_media_type` | 415  | false       |
+| `idempotency_conflict`   | 422  | false       |
+| `internal_error`         | 500  | true        |
+| `not_supported`          | 501  | false       |
+| `transcription_failed`   | 502  | true        |
+| `agent_offline`          | 503  | true        |
 
 `retryable: true` means retrying the same request (same key) is safe and may succeed.
 

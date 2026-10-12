@@ -10,6 +10,7 @@ export const SessionState = Schema.Struct({
   context: Schema.optionalKey(ContextUsage),
   last_activity: Schema.optionalKey(Schema.DateTimeUtcFromString)
 })
+
 export type SessionState = typeof SessionState.Type
 
 export const Status = Schema.Struct({
@@ -21,4 +22,5 @@ export const Status = Schema.Struct({
   }),
   session: SessionState
 })
+
 export type Status = typeof Status.Type

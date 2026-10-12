@@ -1,26 +1,54 @@
 {
-  "$schema": "./node_modules/@effect/tsgo/schema.json",
+  "$schema": "https://json.schemastore.org/tsconfig",
+  // Mirrors reference/effect/tsconfig.base.json, adjusted for TS 7 (tsgo), Bun, and Workers.
+  // Never type-checks reference/: only packages/* and scripts/ are referenced from tsconfig.json.
+  "include": [],
   "compilerOptions": {
-    "target": "es2023",
-    "lib": ["es2023"],
-    "module": "preserve",
-    "moduleResolution": "bundler",
+    // Project references: `tsc -b` checks each package; declarations go to a gitignored dir.
+    "incremental": true,
+    "composite": true,
+    "emitDeclarationOnly": true,
+    "outDir": "${configDir}/.tsbuild",
+    "rootDir": "${configDir}",
+    "target": "ES2022",
+    "lib": ["ES2023"],
+    "module": "NodeNext",
     "moduleDetection": "force",
-    "allowImportingTsExtensions": true,
     "verbatimModuleSyntax": true,
-    "noEmit": true,
+    "allowJs": false,
+    "rewriteRelativeImportExtensions": true,
+    "erasableSyntaxOnly": true,
+    "resolveJsonModule": true,
     "strict": true,
     "exactOptionalPropertyTypes": true,
     "noUncheckedIndexedAccess": true,
+    "noUnusedLocals": true,
+    "noUnusedParameters": true,
     "noImplicitOverride": true,
     "noFallthroughCasesInSwitch": true,
     "skipLibCheck": true,
+    "noErrorTruncation": true,
+    // No ambient @types: each package opts in to exactly what it runs on. Protocol stays platform-free.
     "types": [],
-    "plugins": [
-      {
-        "name": "@effect/language-service",
-        "allowedUnstableApis": ["effect/http-api", "effect/http", "effect/encoding/Sse", "@effect/platform-bun/BunRuntime"]
+    "plugins": [{
+      "name": "@effect/language-service",
+      "namespaceImportPackages": ["effect", "@effect/*"],
+      // With only the default "span", effectFnOpportunity fires only on code that already pipes Effect.withSpan.
+      "effectFn": ["span", "inferred-span"],
+      "diagnosticSeverity": {
+        // effect/http, effect/http-api, effect/encoding/Sse, and BunRuntime are marked unstable in 4.0; we build on them.
+        "unstableApiUsage": "off",
+        // A function returning an Effect is Effect.fn("Module.name") (or fnUntraced), so it gets a span.
+        "effectFnOpportunity": "warning",
+        // A service whose methods leak requirements to every caller must declare it with @effect-expect-leaking.
+        "leakingRequirements": "warning",
+        // Effect.run* inside an Effect drops the caller's context, interruption, and tracing.
+        "runEffectInsideEffect": "warning",
+        // Handling errors on an Effect that never fails is dead code, usually a wrong error type upstream.
+        "catchUnfailableEffect": "warning",
+        // Sync Schema decoders throw inside Effect code instead of failing with a typed error.
+        "schemaSyncInEffect": "warning"
       }
-    ]
+    }]
   }
 }

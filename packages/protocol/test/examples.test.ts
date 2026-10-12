@@ -1,9 +1,8 @@
-import { describe, expect, test } from "bun:test"
-import { Schema } from "effect"
-import { readdir } from "node:fs/promises"
+import { describe, expect, it } from "@effect/vitest"
+import { Effect, Schema } from "effect"
+import { readdirSync, readFileSync } from "node:fs"
 import {
   AgentOffline,
-  type ErrorCode,
   ErrorResponse,
   IdempotencyConflict,
   Runner,
@@ -23,7 +22,7 @@ import {
 const examplesDir = new URL("../examples/", import.meta.url)
 
 /** Every file in examples/ and the schema it must satisfy. */
-const examples: Record<string, Schema.Codec<unknown, unknown>> = {
+const examples = {
   "http/turn-request-text.json": TextTurnBody,
   "http/turn-completed.json": TurnCompleted,
   "http/turn-running.json": TurnRunning,
@@ -47,51 +46,54 @@ const examples: Record<string, Schema.Codec<unknown, unknown>> = {
   "runner/session-op.json": Runner.SessionOp,
   "runner/session-op-result.json": Runner.SessionOpResult,
   "runner/session-op-failed.json": Runner.SessionOpFailed
-}
+} satisfies Record<string, Schema.Codec<unknown, unknown>>
 
-const readExample = (name: string): Promise<unknown> => Bun.file(new URL(name, examplesDir)).json()
+const readExample = (name: string): Schema.Json => JSON.parse(readFileSync(new URL(name, examplesDir), "utf8"))
 
 describe("examples", () => {
-  test("every example file has a schema", async () => {
-    const files = await readdir(examplesDir, { recursive: true })
-    expect(files.filter((file) => file.endsWith(".json")).sort()).toEqual(Object.keys(examples).sort())
+  it("every example file has a schema", () => {
+    const files = readdirSync(examplesDir, { recursive: true, encoding: "utf8" })
+    expect(files.filter((file) => file.endsWith(".json")).toSorted()).toEqual(Object.keys(examples).toSorted())
   })
 
   for (const [name, schema] of Object.entries(examples)) {
-    test(`${name} decodes and re-encodes unchanged`, async () => {
-      const json = await readExample(name)
-      const decoded = Schema.decodeUnknownSync(schema)(json)
-      expect(Schema.encodeSync(schema)(decoded)).toEqual(json)
-    })
+    it.effect(`${name} decodes and re-encodes unchanged`, () =>
+      Effect.gen(function*() {
+        const json = readExample(name)
+        const decoded = yield* Schema.decodeUnknownEffect(schema)(json)
+        expect(yield* Schema.encodeEffect(schema)(decoded)).toEqual(json)
+      }))
   }
 
-  test("turn outcomes decode as TurnState", async () => {
+  it("turn outcomes decode as TurnState", () => {
     const outcomes = Object.keys(examples).filter((name) =>
       name.startsWith("http/turn-") && name !== "http/turn-request-text.json"
     )
+
     for (const name of outcomes) {
-      Schema.decodeUnknownSync(TurnState)(await readExample(name))
+      Schema.decodeUnknownSync(TurnState)(readExample(name))
     }
   })
 
-  test("errors decode as ErrorResponse", async () => {
-    for (const name of Object.keys(examples).filter((name) => name.startsWith("http/error-"))) {
-      const json = await readExample(name)
-      expect(Schema.decodeUnknownSync(ErrorResponse)(json).error).toBe((json as { error: ErrorCode }).error)
+  it("errors decode as ErrorResponse", () => {
+    for (const name of Object.keys(examples).filter((file) => file.startsWith("http/error-"))) {
+      const json = readExample(name)
+      expect(Schema.encodeSync(ErrorResponse)(Schema.decodeUnknownSync(ErrorResponse)(json))).toEqual(json)
     }
   })
 
-  test("runner messages decode as RunnerMessage / RelayMessage", async () => {
+  it("runner messages decode as RunnerMessage / RelayMessage", () => {
     const relayToRunner = new Set(["runner/turn.json", "runner/steer.json", "runner/session-op.json"])
-    for (const name of Object.keys(examples).filter((name) => name.startsWith("runner/"))) {
+
+    for (const name of Object.keys(examples).filter((file) => file.startsWith("runner/"))) {
       const schema = relayToRunner.has(name) ? Runner.RelayMessage : Runner.RunnerMessage
-      Schema.decodeUnknownSync(schema)(await readExample(name))
+      Schema.decodeUnknownSync(schema)(readExample(name))
     }
   })
 })
 
 describe("schemas", () => {
-  test("idempotency key and session name are validated", () => {
+  it("idempotency key and session name are validated", () => {
     const turn = { type: "turn", key: "too-short", session: "main", transcript: "hi" }
     expect(() => Schema.decodeUnknownSync(Runner.Turn)(turn)).toThrow()
     expect(() =>
@@ -99,19 +101,20 @@ describe("schemas", () => {
     ).toThrow()
   })
 
-  test("hello accepts protocol 1 and 2, nothing else", () => {
+  it("hello accepts protocol 1 and 2, nothing else", () => {
     const hello = { type: "hello", runner_version: "0.1.0", agent: { name: "Hermes" }, in_flight: [] }
     expect(Schema.decodeUnknownSync(Runner.Hello)({ ...hello, protocol: 1 }).protocol).toBe(1)
     expect(Schema.decodeUnknownSync(Runner.Hello)({ ...hello, protocol: 2 }).protocol).toBe(2)
     expect(() => Schema.decodeUnknownSync(Runner.Hello)({ ...hello, protocol: 3 })).toThrow()
   })
 
-  test("unknown fields are ignored", () => {
+  it("unknown fields are ignored", () => {
     const decoded = Schema.decodeUnknownSync(Runner.Ack)({
       type: "ack",
       key: "4f9c2d7e-8b1a-4c3e-9f2d-6a5b8c7d9e0f",
       added_later: true
     })
+
     expect(decoded).toEqual({ type: "ack", key: "4f9c2d7e-8b1a-4c3e-9f2d-6a5b8c7d9e0f" })
   })
 })

@@ -7,6 +7,13 @@ dist/
 *.tsbuildinfo
 coverage/
 
+# tsc -b declaration output (bun run check)
+.tsbuild/
+
+# read-only upstream clones, materialized by `bun install` (scripts/sync-reference.ts)
+reference/*
+!reference/.gitkeep
+
 # Secrets and local config
 .env
 .env.*

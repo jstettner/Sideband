@@ -1,3 +1,4 @@
+/* oxlint-disable -- Replaced by an Effect Durable Object whose decisions are pure functions. */
 import type { AgentInfo, SessionState, Status, TurnState } from "@sideband/protocol"
 import { Runner } from "@sideband/protocol"
 import { DurableObject } from "cloudflare:workers"
@@ -255,10 +256,12 @@ export class Relay extends DurableObject<Cloudflare.Env> {
    */
   private onHello(ws: WebSocket, hello: Runner.Hello): void {
     const attachment = ws.deserializeAttachment() as Attachment
-    ws.serializeAttachment({
-      ...attachment,
-      hello: { runner_version: hello.runner_version, agent: hello.agent, protocol: hello.protocol }
-    } satisfies Attachment)
+    ws.serializeAttachment(
+      {
+        ...attachment,
+        hello: { runner_version: hello.runner_version, agent: hello.agent, protocol: hello.protocol }
+      } satisfies Attachment
+    )
     this.store.setAgentName(hello.agent.name)
     console.log(
       `runner hello: ${hello.agent.name} (runner ${hello.runner_version}, protocol ${hello.protocol}), ` +

@@ -1,4 +1,4 @@
-import { Context, Data, Effect, Layer, Option, Redacted, Schedule, Schema, Stream } from "effect"
+import { Context, Data, Effect, Layer, Option, Predicate, Redacted, Schedule, Schema, Stream, type Types } from "effect"
 import * as Sse from "effect/encoding/Sse"
 import { HttpClient, HttpClientRequest, HttpClientResponse } from "effect/http"
 import { HermesConfig } from "../config.ts"
@@ -9,6 +9,7 @@ import { HermesConfig } from "../config.ts"
  * to retry because of its `Idempotency-Key`. Steers aren't, so they're never retried.
  */
 const RETRY_TIMES = 6
+
 const RETRY_BASE = "500 millis"
 
 /** A Hermes API call failed, or answered something we couldn't decode. */
@@ -17,7 +18,10 @@ export class HermesError extends Data.TaggedError("HermesError")<{
 }> {}
 
 /** A run that is still going. */
-const PendingRun = Schema.Struct({ status: Schema.Literals(["queued", "running", "stopping"]), session_id: Schema.String })
+const PendingRun = Schema.Struct({
+  status: Schema.Literals(["queued", "running", "stopping"]),
+  session_id: Schema.String
+})
 
 /** A run that won't change any more unless someone acts on it (an approval, a stop). */
 export const SettledRun = Schema.Union([
@@ -33,9 +37,14 @@ export const SettledRun = Schema.Union([
     /** Steer text that arrived after the final reply; Hermes dropped it. Absent when there's none. */
     pending_steer: Schema.optional(Schema.String)
   }),
-  Schema.Struct({ status: Schema.Literals(["failed", "interrupted"]), session_id: Schema.String, error: Schema.String }),
+  Schema.Struct({
+    status: Schema.Literals(["failed", "interrupted"]),
+    session_id: Schema.String,
+    error: Schema.String
+  }),
   Schema.Struct({ status: Schema.Literal("cancelled"), session_id: Schema.String })
 ])
+
 export type SettledRun = typeof SettledRun.Type
 
 /**
@@ -43,6 +52,7 @@ export type SettledRun = typeof SettledRun.Type
  * session the run actually used: Hermes resolves a session rotated by compaction to its live tip.
  */
 export const Run = Schema.Union([PendingRun, SettledRun])
+
 export type Run = typeof Run.Type
 
 export const isSettled = (run: Run): run is SettledRun =>
@@ -63,6 +73,18 @@ const RunEvent = Schema.Struct({ event: Schema.String })
 /** OpenAI-style error envelope Hermes uses for non-2xx answers. */
 const ErrorBody = Schema.Struct({
   error: Schema.Struct({ message: Schema.String, code: Schema.optional(Schema.NullOr(Schema.String)) })
+})
+
+/** A `HermesError` for a non-2xx answer, with Hermes's error message. */
+const failure = Effect.fnUntraced(function*(what: string, response: HttpClientResponse.HttpClientResponse) {
+  const body = yield* HttpClientResponse.schemaBodyJson(ErrorBody)(response).pipe(Effect.option)
+
+  const detail = Option.match(body, {
+    onNone: () => "",
+    onSome: ({ error }) => `${error.code ? ` ${error.code}` : ""}: ${error.message}`
+  })
+
+  return yield* new HermesError({ message: `${what}: ${response.status}${detail}` })
 })
 
 /** The parts of the Hermes API server the runner uses. */
@@ -98,6 +120,7 @@ export class HermesClient extends Context.Service<HermesClient, {
     HermesClient,
     Effect.gen(function*() {
       const config = yield* HermesConfig
+
       const once = (yield* HttpClient.HttpClient).pipe(
         HttpClient.mapRequest((request) =>
           request.pipe(
@@ -106,32 +129,28 @@ export class HermesClient extends Context.Service<HermesClient, {
           )
         )
       )
+
       const retrying = once.pipe(
         HttpClient.retryTransient({ times: RETRY_TIMES, schedule: Schedule.exponential(RETRY_BASE) })
       )
-
-      /** A `HermesError` for a non-2xx answer, with Hermes's error message. */
-      const failure = (what: string, response: HttpClientResponse.HttpClientResponse) =>
-        Effect.gen(function*() {
-          const body = yield* HttpClientResponse.schemaBodyJson(ErrorBody)(response).pipe(Effect.option)
-          const detail = Option.match(body, {
-            onNone: () => "",
-            onSome: ({ error }) => `${error.code ? ` ${error.code}` : ""}: ${error.message}`
-          })
-          return yield* new HermesError({ message: `${what}: ${response.status}${detail}` })
-        })
 
       /** Executes `request`; a non-2xx answer becomes a `HermesError`. */
       const execute = (what: string, request: HttpClientRequest.HttpClientRequest) =>
         Effect.gen(function*() {
           const response = yield* retrying.execute(request)
+
           if (response.status >= 200 && response.status < 300) return response
+
           return yield* failure(what, response)
         }).pipe(
           Effect.catchTag("HttpClientError", (e) => Effect.fail(new HermesError({ message: `${what}: ${e.message}` })))
         )
 
-      const call = <S extends Schema.Constraint>(what: string, request: HttpClientRequest.HttpClientRequest, schema: S) =>
+      const call = <S extends Schema.Constraint>(
+        what: string,
+        request: HttpClientRequest.HttpClientRequest,
+        schema: S
+      ) =>
         execute(what, request).pipe(
           Effect.flatMap(HttpClientResponse.schemaBodyJson(schema)),
           Effect.catchTags({
@@ -141,31 +160,41 @@ export class HermesClient extends Context.Service<HermesClient, {
         )
 
       return HermesClient.of({
-        createRun: ({ key, input, instructions, sessionId }) =>
-          call(
+        createRun: Effect.fn("HermesClient.createRun")(({ key, input, instructions, sessionId }) => {
+          const body: Types.Mutable<{ input: string; instructions: string; session_id?: string }> = {
+            input,
+            instructions
+          }
+
+          if (sessionId !== undefined) body.session_id = sessionId
+
+          return call(
             "POST /v1/runs",
             HttpClientRequest.post("/v1/runs").pipe(
               HttpClientRequest.setHeader("idempotency-key", key),
-              HttpClientRequest.bodyJsonUnsafe({
-                input,
-                instructions,
-                ...(sessionId !== undefined ? { session_id: sessionId } : {})
-              })
+              HttpClientRequest.bodyJsonUnsafe(body)
             ),
             RunAccepted
-          ).pipe(Effect.map((run) => ({ runId: run.run_id, replayed: run.replayed }))),
-        getRun: (runId) =>
-          call(`GET /v1/runs/${runId}`, HttpClientRequest.get(`/v1/runs/${encodeURIComponent(runId)}`), Run),
-        steerRun: (runId, input) => {
+          ).pipe(Effect.map((run) => ({ runId: run.run_id, replayed: run.replayed })))
+        }),
+        getRun: Effect.fn("HermesClient.getRun")((runId) =>
+          call(`GET /v1/runs/${runId}`, HttpClientRequest.get(`/v1/runs/${encodeURIComponent(runId)}`), Run)
+        ),
+        steerRun: Effect.fn("HermesClient.steerRun")((runId, input) => {
           const what = `POST /v1/runs/${runId}/steer`
+
           const request = HttpClientRequest.post(`/v1/runs/${encodeURIComponent(runId)}/steer`).pipe(
             HttpClientRequest.bodyJsonUnsafe({ input })
           )
+
           return Effect.gen(function*() {
             const response = yield* once.execute(request)
+
             if (response.status === 409) return "NotRunning" as const
+
             if (response.status < 200 || response.status >= 300) return yield* failure(what, response)
             yield* HttpClientResponse.schemaBodyJson(SteerAccepted)(response)
+
             return "Steered" as const
           }).pipe(
             Effect.catchTags({
@@ -173,9 +202,10 @@ export class HermesClient extends Context.Service<HermesClient, {
               SchemaError: (e) => Effect.fail(new HermesError({ message: `${what}: unexpected answer: ${e.message}` }))
             })
           )
-        },
+        }),
         runEvents: (runId) => {
           const what = `GET /v1/runs/${runId}/events`
+
           return HttpClientResponse.stream(
             execute(what, HttpClientRequest.get(`/v1/runs/${encodeURIComponent(runId)}/events`))
           ).pipe(
@@ -183,7 +213,9 @@ export class HermesClient extends Context.Service<HermesClient, {
             Stream.pipeThroughChannel(Sse.decodeDataSchema(RunEvent)),
             Stream.map((frame) => frame.data.event),
             Stream.mapError((e) =>
-              e._tag === "HermesError" ? e : new HermesError({ message: `${what}: ${"message" in e ? e.message : e._tag}` })
+              Predicate.isTagged(e, "HermesError")
+                ? e
+                : new HermesError({ message: `${what}: ${"message" in e ? e.message : e._tag}` })
             )
           )
         },

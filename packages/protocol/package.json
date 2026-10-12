@@ -6,17 +6,13 @@
   "exports": {
     ".": "./src/index.ts"
   },
-  "scripts": {
-    "gen": "bun scripts/gen-openapi.ts",
-    "check": "bun scripts/gen-openapi.ts --check",
-    "test": "bun test",
-    "typecheck": "tsc -p tsconfig.json"
-  },
   "peerDependencies": {
     "effect": "catalog:"
   },
   "devDependencies": {
-    "@types/bun": "catalog:",
-    "effect": "catalog:"
+    "@effect/vitest": "catalog:",
+    "@types/node": "catalog:",
+    "effect": "catalog:",
+    "vitest": "catalog:"
   }
 }

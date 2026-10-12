@@ -48,8 +48,10 @@ export const layer: Layer.Layer<Agent, never, HermesClient> = Layer.effect(
             Effect.catchTag("HermesError", (e) => Effect.logWarning(`run ${runId}: events lost, polling: ${e.message}`))
           )
         }
+
         while (true) {
           const run = yield* hermes.getRun(runId).pipe(unavailable)
+
           if (isSettled(run)) return run
           yield* Effect.sleep(POLL_INTERVAL)
         }
@@ -57,42 +59,54 @@ export const layer: Layer.Layer<Agent, never, HermesClient> = Layer.effect(
 
     return Agent.of({
       name: "hermes",
-      runTurn: ({ key, agentSessionId, transcript }) =>
-        Effect.gen(function*() {
-          const { runId, replayed } = yield* hermes.createRun({
-            key,
-            input: transcript,
-            instructions: watchInstructions,
-            sessionId: agentSessionId
-          }).pipe(unavailable)
-          yield* Effect.logInfo(`turn ${key}: hermes run ${runId}${replayed ? " (replayed)" : ""}`)
-          runs.set(key, runId)
-          const run = yield* waitForRun(runId, replayed).pipe(Effect.ensuring(Effect.sync(() => runs.delete(key))))
-          return outcome(run)
-        }),
-      steerTurn: ({ key, transcript }) => {
+      runTurn: Effect.fn("Agent.runTurn")(function*({ key, agentSessionId, transcript }) {
+        const { runId, replayed } = yield* hermes.createRun({
+          key,
+          input: transcript,
+          instructions: watchInstructions,
+          sessionId: agentSessionId
+        }).pipe(unavailable)
+
+        yield* Effect.logInfo(`turn ${key}: hermes run ${runId}${replayed ? " (replayed)" : ""}`)
+        runs.set(key, runId)
+        const run = yield* waitForRun(runId, replayed).pipe(Effect.ensuring(Effect.sync(() => runs.delete(key))))
+
+        return outcome(run)
+      }),
+      steerTurn: Effect.fn("Agent.steerTurn")(({ key, transcript }) => {
         const runId = runs.get(key)
+
         if (runId === undefined) return Effect.succeed("NotRunning" as const)
+
         return hermes.steerRun(runId, transcript).pipe(
           Effect.tap((result) => Effect.logInfo(`turn ${key}: steer into hermes run ${runId} → ${result}`)),
           unavailable
         )
-      },
-      sessionOp: (op) =>
-        op === "new"
-          ? hermes.createSession.pipe(
-            Effect.map((agentSessionId) => ({ agentSessionId })),
-            unavailable
-          )
-          : Effect.fail(new NotSupported({ message: "The Hermes API server can't compact a session." }))
+      }),
+      sessionOp: Effect.fn("Agent.sessionOp")(function*(op) {
+        if (op !== "new") {
+          return yield* new NotSupported({ message: "The Hermes API server can't compact a session." })
+        }
+
+        const agentSessionId = yield* hermes.createSession.pipe(unavailable)
+
+        return { agentSessionId }
+      })
     })
   })
 )
 
+/* oxlint-disable anti-slop-effect/no-manual-tagged-construction -- TurnOutcome is a plain TypeScript union
+   with no constructors; this goes once it is a Schema.TaggedUnion. */
 const outcome = (run: SettledRun): TurnOutcome => {
   switch (run.status) {
     case "completed":
-      return { _tag: "Completed", agentSessionId: run.session_id, watchText: run.output, pendingSteer: run.pending_steer }
+      return {
+        _tag: "Completed",
+        agentSessionId: run.session_id,
+        watchText: run.output,
+        pendingSteer: run.pending_steer
+      }
     case "waiting_for_approval":
       return { _tag: "NeedsApproval", agentSessionId: run.session_id, message: run.approval.description }
     case "failed":
@@ -103,5 +117,6 @@ const outcome = (run: SettledRun): TurnOutcome => {
       return { _tag: "Failed", code: "interrupted", message: "The run was stopped in Hermes." }
   }
 }
+/* oxlint-enable anti-slop-effect/no-manual-tagged-construction */
 
 const unavailable = Effect.mapError((e: { readonly message: string }) => new AgentUnavailable({ message: e.message }))

@@ -1,12 +1,5 @@
-import { Context, Schema } from "effect"
-import {
-  HttpApi,
-  HttpApiEndpoint,
-  HttpApiGroup,
-  HttpApiMiddleware,
-  HttpApiSecurity,
-  OpenApi
-} from "effect/http-api"
+import { Context, type Schema } from "effect"
+import { HttpApi, HttpApiEndpoint, HttpApiGroup, HttpApiMiddleware, HttpApiSecurity, OpenApi } from "effect/http-api"
 import { IdempotencyKey, SessionName } from "./common.ts"
 import {
   AgentOffline,
@@ -38,6 +31,7 @@ export class Authorization extends HttpApiMiddleware.Service<Authorization, {
 }) {}
 
 const SessionQuery = { session: SessionName }
+
 const SessionParams = { session: SessionName }
 
 /** Errors any authenticated endpoint can return. */
@@ -59,14 +53,17 @@ export class TurnsGroup extends HttpApiGroup.make("turns")
         TranscriptionFailed,
         AgentOffline
       ]
-    }).annotate(OpenApi.Description, [
-      "Submit one push-to-talk turn: raw `audio/wav` (16 kHz mono PCM16) body, or JSON `{ \"text\": ... }`.",
-      "`session` names the conversation (e.g. `main`). Retrying with the same `Idempotency-Key` never runs the",
-      "turn twice: it returns the stored outcome, or `running` while it is still in flight.",
-      "A turn submitted while another is running in the session may be folded into it (steering): its",
-      "outcome is then `merged`, pointing at the turn whose outcome answers both. Backends that can't steer",
-      "answer `session_busy` instead."
-    ].join(" "))
+    }).annotate(
+      OpenApi.Description,
+      [
+        "Submit one push-to-talk turn: raw `audio/wav` (16 kHz mono PCM16) body, or JSON `{ \"text\": ... }`.",
+        "`session` names the conversation (e.g. `main`). Retrying with the same `Idempotency-Key` never runs the",
+        "turn twice: it returns the stored outcome, or `running` while it is still in flight.",
+        "A turn submitted while another is running in the session may be folded into it (steering): its",
+        "outcome is then `merged`, pointing at the turn whose outcome answers both. Backends that can't steer",
+        "answer `session_busy` instead."
+      ].join(" ")
+    )
   )
   .add(
     HttpApiEndpoint.get("get", "/v1/turns/:idempotency_key", {
@@ -114,7 +111,8 @@ export class SidebandApi extends HttpApi.make("sideband")
   .annotateMerge(OpenApi.annotations({
     title: "Sideband",
     version: "1",
-    description: "HTTP contract between a Sideband client (the watch app) and a Sideband backend. See protocol/README.md.",
+    description:
+      "HTTP contract between a Sideband client (the watch app) and a Sideband backend. See protocol/README.md.",
     license: { name: "MIT" },
     transform: allowAdditionalProperties
   }))
@@ -124,15 +122,10 @@ export class SidebandApi extends HttpApi.make("sideband")
  * Schema decoding ignores unknown keys, and clients must too (fields are only ever added
  * within /v1), so the spec shouldn't forbid them.
  */
-function allowAdditionalProperties(spec: Record<string, any>): Record<string, any> {
-  const strip = (node: unknown): unknown => {
-    if (Array.isArray(node)) return node.map(strip)
-    if (node === null || typeof node !== "object") return node
-    return Object.fromEntries(
-      Object.entries(node)
-        .filter(([key, value]) => !(key === "additionalProperties" && value === false))
-        .map(([key, value]) => [key, strip(value)])
-    )
-  }
-  return strip(spec) as Record<string, any>
+function allowAdditionalProperties(spec: Schema.JsonObject): Schema.JsonObject {
+  // A reviver that returns `undefined` deletes the key.
+  return JSON.parse(
+    JSON.stringify(spec),
+    (key, value) => key === "additionalProperties" && value === false ? undefined : value
+  )
 }

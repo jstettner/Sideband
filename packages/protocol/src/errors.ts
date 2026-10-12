@@ -97,6 +97,7 @@ export const ErrorCode = Schema.Literals([
   "transcription_failed",
   "agent_offline"
 ])
+
 export type ErrorCode = typeof ErrorCode.Type
 
 /** Any error response, for clients that just need to read `error` / `retryable`. */
@@ -113,4 +114,5 @@ export const ErrorResponse = Schema.Union([
   TranscriptionFailed,
   AgentOffline
 ])
+
 export type ErrorResponse = typeof ErrorResponse.Type

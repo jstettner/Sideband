@@ -1,0 +1,6 @@
+{
+  "reference/effect": {
+    "url": "https://github.com/Effect-TS/effect.git",
+    "ref": "effect@{catalog:effect}"
+  }
+}

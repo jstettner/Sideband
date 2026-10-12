@@ -5,8 +5,7 @@
   "type": "module",
   "scripts": {
     "start": "bun src/main.ts",
-    "build": "bun build src/main.ts --compile --outfile dist/sideband-runner",
-    "typecheck": "tsc -p tsconfig.json"
+    "build": "bun build src/main.ts --compile --outfile dist/sideband-runner"
   },
   "dependencies": {
     "@effect/platform-bun": "catalog:",

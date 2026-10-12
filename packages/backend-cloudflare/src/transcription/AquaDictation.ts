@@ -1,3 +1,4 @@
+/* oxlint-disable -- Replaced by Aqua on HttpClient in its own package. */
 import { Effect, Layer } from "effect"
 import { Transcription, TranscriptionError } from "./Transcription.ts"
 
@@ -18,7 +19,7 @@ interface AquaError {
  */
 export const layer = (apiKey: string) =>
   Layer.succeed(Transcription)({
-    transcribe: (audio, idempotencyKey) =>
+    transcribe: Effect.fn("Transcription.transcribe")((audio, idempotencyKey) =>
       Effect.tryPromise({
         try: async () => {
           const form = new FormData()
@@ -31,7 +32,9 @@ export const layer = (apiKey: string) =>
           if (!response.ok) {
             const body = (await response.json().catch(() => ({}))) as AquaError
             throw new TranscriptionError({
-              message: `aqua ${response.status} ${body.error?.code ?? ""}: ${body.error?.message ?? response.statusText}`
+              message: `aqua ${response.status} ${body.error?.code ?? ""}: ${
+                body.error?.message ?? response.statusText
+              }`
             })
           }
           const result = (await response.json()) as DictationResult
@@ -41,4 +44,5 @@ export const layer = (apiKey: string) =>
         catch: (cause) =>
           cause instanceof TranscriptionError ? cause : new TranscriptionError({ message: `aqua: ${String(cause)}` })
       })
+    )
   })

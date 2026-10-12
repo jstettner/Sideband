@@ -18,33 +18,39 @@ watch ──POST /v1/turn──▶ backend ──▶ transcription provider
 
 ## Layout
 
-| Path | What |
-| --- | --- |
-| `packages/protocol/` | The contract: HTTP API (watch ↔ backend), runner WebSocket protocol, shared Effect Schemas |
-| `watch/` | watchOS app + widgets (Swift/SwiftUI, project generated with XcodeGen) |
-| `packages/backend-cloudflare/` | Reference backend: Cloudflare Worker + Durable Object (Hono + Effect) |
-| `packages/runner/` | Long-lived process next to the agent (Bun + Effect), with agent adapters |
+| Path                           | What                                                                                       |
+| ------------------------------ | ------------------------------------------------------------------------------------------ |
+| `packages/protocol/`           | The contract: HTTP API (watch ↔ backend), runner WebSocket protocol, shared Effect Schemas |
+| `watch/`                       | watchOS app + widgets (Swift/SwiftUI, project generated with XcodeGen)                     |
+| `packages/backend-cloudflare/` | Reference backend: Cloudflare Worker + Durable Object (Hono + Effect)                      |
+| `packages/runner/`             | Long-lived process next to the agent (Bun + Effect), with agent adapters                   |
 
 Write your own backend or runner against `packages/protocol/`.
 
 ## Development
 
-Requirements: [Bun](https://bun.sh), Xcode, [XcodeGen](https://github.com/yonaskolb/XcodeGen).
+Requirements: [Bun](https://bun.sh), [Node](https://nodejs.org) 22+ (Vitest runs on it), Xcode,
+[XcodeGen](https://github.com/yonaskolb/XcodeGen).
 
 ```sh
-bun install          # also patches tsc with the Effect language service
-bun run typecheck
+bun install       # installs, patches TypeScript with @effect/tsgo, clones reference/, and installs git hooks
+bun run check     # tsc -b: every package, with the Effect language service diagnostics
+bun run lint      # oxlint + dprint check + the openapi.json check (dprint downloads its plugins on first run)
+bun run test      # vitest run
+bun run format    # dprint fmt
+bun run openapi   # regenerate packages/protocol/openapi.json
 ```
+
+The pre-commit hook (`.githooks/pre-commit`, enabled by `bun install` through `core.hooksPath`) runs
+`check`, `lint`, and `test`.
 
 Editor: install the TypeScript 7 (native) extension. `.vscode/settings.json` points it at the
 workspace TypeScript so Effect diagnostics show up.
 
-Optional, for AI-assisted development: `CLAUDE.md` points agents at a local checkout of the
-Effect v4 source ([effect.solutions setup](https://www.effect.solutions/project-setup#reference-repositories)):
-
-```sh
-git clone --depth 1 https://github.com/Effect-TS/effect.git ~/.local/share/effect-solutions/effect
-```
+`reference/` holds read-only clones of upstream source (currently Effect, at the tag matching the
+root catalog's `effect`) for agents to read; `AGENTS.md` explains them. `bun install` warns and
+carries on if it can't reach GitHub to sync them; `bun run reference:sync` retries and fails loudly.
+Under `CI`, the sync is skipped.
 
 Local config is never committed. Copy the `*.example` files:
 
