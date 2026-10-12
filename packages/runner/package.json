@@ -9,11 +9,11 @@
     "typecheck": "tsc -p tsconfig.json"
   },
   "dependencies": {
-    "@effect/platform-bun": "^4.0.1",
+    "@effect/platform-bun": "catalog:",
     "@sideband/protocol": "workspace:*",
-    "effect": "^4.0.1"
+    "effect": "catalog:"
   },
   "devDependencies": {
-    "@types/bun": "^1.4.2"
+    "@types/bun": "catalog:"
   }
 }

@@ -20,12 +20,12 @@ watch ──POST /v1/turn──▶ backend ──▶ transcription provider
 
 | Path | What |
 | --- | --- |
-| `protocol/` | The contract: HTTP API (watch ↔ backend), runner WebSocket protocol, shared Effect Schemas |
+| `packages/protocol/` | The contract: HTTP API (watch ↔ backend), runner WebSocket protocol, shared Effect Schemas |
 | `watch/` | watchOS app + widgets (Swift/SwiftUI, project generated with XcodeGen) |
-| `backends/cloudflare/` | Reference backend: Cloudflare Worker + Durable Object (Hono + Effect) |
-| `runner/` | Long-lived process next to the agent (Bun + Effect), with agent adapters |
+| `packages/backend-cloudflare/` | Reference backend: Cloudflare Worker + Durable Object (Hono + Effect) |
+| `packages/runner/` | Long-lived process next to the agent (Bun + Effect), with agent adapters |
 
-Write your own backend or runner against `protocol/`.
+Write your own backend or runner against `packages/protocol/`.
 
 ## Development
 
@@ -48,8 +48,8 @@ git clone --depth 1 https://github.com/Effect-TS/effect.git ~/.local/share/effec
 
 Local config is never committed. Copy the `*.example` files:
 
-- `backends/cloudflare/.env.example` (Cloudflare account), `.dev.vars.example`
-- `runner/.env.example`, `runner/launchd/com.sideband.runner.plist.example`
+- `packages/backend-cloudflare/.env.example` (Cloudflare account), `.dev.vars.example`
+- `packages/runner/.env.example`, `packages/runner/launchd/com.sideband.runner.plist.example`
 - `watch/Config/Local.xcconfig.example`
 
 ## License
