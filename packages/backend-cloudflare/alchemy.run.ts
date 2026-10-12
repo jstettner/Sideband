@@ -4,6 +4,8 @@
  * Each stage picks its state store here (`src/Stage.ts`):
  * - `dev_*` (`bun run dev`) and `test_*` (`Test.make`): `localState()`, under this package's
  *   `.alchemy/state/sideband/<stage>/`. No Cloudflare account, credentials, or network.
+ * - `prod` (`bun run deploy`): the account's `Cloudflare.state()`. Never `localState()`, which would write
+ *   deploy-time secrets (the Worker's tokens) to disk in plaintext.
  * - Any other stage fails before anything is planned.
  *
  * The Relay migrates its own SQLite when each object activates, so the stack has no migrate step.
@@ -12,10 +14,16 @@ import * as Alchemy from "alchemy"
 import * as Cloudflare from "alchemy/Cloudflare"
 import { Effect, Layer } from "effect"
 import SidebandWorkerLive, { SidebandWorker } from "./src/Sideband/SidebandWorker.ts"
-import { isLocalStage, STACK } from "./src/Stage.ts"
+import { isLocalStage, PROD, STACK } from "./src/Stage.ts"
 
 /** Each configured stage's state store. */
-const stageState = (stage: string) => isLocalStage(stage) ? Alchemy.localState() : undefined
+const stageState = (stage: string) => {
+  if (isLocalStage(stage)) return Alchemy.localState()
+
+  if (stage === PROD) return Cloudflare.state()
+
+  return undefined
+}
 
 /**
  * The stage Alchemy's own tooling runs under (`PLACEHOLDER_STAGE` in alchemy's `Alchemist/Session.ts`),
@@ -34,9 +42,9 @@ const currentState = Effect.flatMap(Alchemy.Stage, (stage) => {
     new Error(
       stage === ALCHEMY_TOOLING_STAGE
         ? "This alchemy command runs without a stage, and this stack picks its state store per stage. For " +
-          "`alchemy state`, name the store: `--backend local` (dev_*, test_*)"
-        : `Stage "${stage}" is not configured in alchemy.run.ts: use \`bun run dev\` (dev_*) or \`bun run test\` ` +
-          "(test_*)"
+          "`alchemy state`, name the store: `--backend cloudflare` (prod) or `--backend local` (dev_*, test_*)"
+        : `Stage "${stage}" is not configured in alchemy.run.ts: use \`bun run dev\` (dev_*), \`bun run test\` ` +
+          "(test_*), or `bun run deploy` (prod)"
     )
   )
 })

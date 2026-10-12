@@ -4,6 +4,10 @@
   "private": true,
   "type": "module",
   "description": "The reference backend: a Cloudflare Worker serving the watch API and the Relay Durable Object, and the Alchemy stack that declares them.",
+  "scripts": {
+    "plan": "alchemy plan --stage prod --env-file ../../.env.prod",
+    "deploy": "alchemy deploy --stage prod --env-file ../../.env.prod"
+  },
   "dependencies": {
     "@effect/sql-sqlite-do": "catalog:",
     "@sideband/protocol": "workspace:*",

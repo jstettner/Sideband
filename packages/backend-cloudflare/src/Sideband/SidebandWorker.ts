@@ -4,11 +4,13 @@
  * `/healthz`. It hosts the `Relay` Durable Object.
  *
  * The class, `SidebandWorker`, is the identifier; its logical id, `"Sideband"`, names the script on local
- * stages. The default export is the implementation, which only this Worker's bundle and the stack use.
+ * stages, and prod's script is `Stage.PROD_SCRIPT`. The default export is the implementation, which only this
+ * Worker's bundle and the stack use.
  */
 import { Api } from "@sideband/protocol"
 import type { Transcription } from "@sideband/transcription"
 import * as Cloudflare from "alchemy/Cloudflare"
+import { Stack } from "alchemy/Stack"
 import { type Config, Config as C, Effect, Exit, Layer } from "effect"
 import { HttpRouter, HttpServer, HttpServerResponse } from "effect/http"
 import { HttpApiBuilder } from "effect/http-api"
@@ -20,6 +22,7 @@ import * as Turns from "../Api/Turns.ts"
 import * as Layers from "../Layers.ts"
 import * as RelayClient from "../Relay/RelayClient.ts"
 import { RelayDO, RelayDOLive } from "../Relay/RelayDO.ts"
+import { PROD, PROD_SCRIPT } from "../Stage.ts"
 
 /**
  * The services the watch API's handlers take from `Layers.ts`, built while the Worker is constructed, so
@@ -29,13 +32,20 @@ const services: Layer.Layer<Transcription.Transcription, Config.ConfigError> = L
 
 export class SidebandWorker extends Cloudflare.Worker<SidebandWorker, {}, RelayDO>()("Sideband") {}
 
-export default SidebandWorker.make(
-  {
+/** The Worker's props on `stage`. Only prod names its script; local stages keep Alchemy's generated names. */
+export const props = (stage: string) => {
+  const common = {
     main: import.meta.url,
     // The newest date the workerd pinned by alchemy@2.0.0-beta.81 supports; local dev refuses later ones.
     compatibility: { date: "2026-09-25" },
     dev: { port: 1337 }
-  },
+  }
+
+  return stage === PROD ? { ...common, name: PROD_SCRIPT } : common
+}
+
+export default SidebandWorker.make(
+  Stack.useSync((stack) => props(stack.stage)),
   // Runs once per isolate. Bindings and secrets are yielded here; a binding first read inside `fetch` would
   // bind nothing.
   Effect.gen(function*() {

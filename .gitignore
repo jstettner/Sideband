@@ -18,6 +18,7 @@ reference/*
 .env
 .env.*
 !.env.example
+!.env.prod.example
 .dev.vars
 .dev.vars.*
 !.dev.vars.example
