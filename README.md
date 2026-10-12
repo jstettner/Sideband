@@ -110,10 +110,17 @@ There is no staging stage. Any other stage fails before anything is planned.
 
 To deploy prod:
 
-1. Connect Alchemy to the Cloudflare account once, from `packages/backend-cloudflare`:
-   `bunx alchemy profile edit --add Cloudflare`. Run the Alchemy CLI from that package, where it is installed:
-   from the repo root, `bunx` fetches a separate copy that can't load its `@effect/platform-bun` peer. Profiles
-   live in `~/.alchemy/`, so they work from any checkout afterwards.
+1. Connect Alchemy to Sideband's Cloudflare account once, in a profile of its own, `sideband`, which
+   `bun run deploy` always uses (so it never deploys with another project's `default` profile):
+   ```sh
+   cd packages/backend-cloudflare
+   bunx alchemy profile create sideband
+   bunx alchemy profile edit --add Cloudflare --profile sideband
+   bunx alchemy profile show --profile sideband
+   ```
+   Pick Sideband's account when Cloudflare asks, and check the `accountId` that `show` prints. Run the Alchemy
+   CLI from that package, where it is installed: from the repo root, `bunx` fetches a separate copy that can't
+   load its `@effect/platform-bun` peer. Profiles live in `~/.alchemy/`, so they work from any checkout.
 2. Copy `.env.prod.example` to `.env.prod` and fill in the tokens the watch and the runner use, and the Aqua
    key. The Worker binds each as a secret on every deploy.
 3. `bun run deploy`. It shows the plan and asks before applying it.
