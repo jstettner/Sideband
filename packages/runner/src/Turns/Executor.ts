@@ -35,7 +35,7 @@ export class Executor extends Context.Service<Executor, {
   readonly steer: (steer: Runner.Steer, emit: Emit) => Effect.Effect<void>
   /** Starts a session operation; answers `session_op_result` or `session_op_failed`. */
   readonly sessionOp: (op: Runner.SessionOp, emit: Emit) => Effect.Effect<void>
-}>()("sideband/runner/turns/Executor") {
+}>()("@sideband/runner/Executor") {
   static readonly layer = Layer.effect(
     Executor,
     Effect.gen(function*() {

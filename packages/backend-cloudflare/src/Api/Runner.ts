@@ -1,4 +1,4 @@
-import { constantTimeEqual } from "./auth.ts"
+import { constantTimeEqual } from "./Auth.ts"
 
 export const CONNECT_PATH = "/v1/runner/connect"
 

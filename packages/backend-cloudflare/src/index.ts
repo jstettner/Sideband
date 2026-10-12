@@ -1,19 +1,19 @@
-import { SidebandApi } from "@sideband/protocol"
+import { Api } from "@sideband/protocol"
 import { env } from "cloudflare:workers"
 import { Layer } from "effect"
 import { HttpRouter, HttpServer } from "effect/http"
 import { HttpApiBuilder } from "effect/http-api"
-import * as Auth from "./api/auth.ts"
-import { envelope } from "./api/envelope.ts"
-import * as Runner from "./api/runner.ts"
-import * as Status from "./api/status.ts"
-import * as Turns from "./api/turns.ts"
-import { RelayClient } from "./relay/RelayClient.ts"
+import * as Auth from "./Api/Auth.ts"
+import { envelope } from "./Api/Envelope.ts"
+import * as Runner from "./Api/Runner.ts"
+import * as Status from "./Api/Status.ts"
+import * as Turns from "./Api/Turns.ts"
+import { RelayClient } from "./Relay/RelayClient.ts"
 import * as AquaDictation from "./transcription/AquaDictation.ts"
 
-export { Relay } from "./relay/Relay.ts"
+export { Relay } from "./Relay/Relay.ts"
 
-const Api = HttpApiBuilder.layer(SidebandApi).pipe(
+const ApiLive = HttpApiBuilder.layer(Api.SidebandApi).pipe(
   Layer.provide([Turns.layer, Status.layer]),
   Layer.provide([
     Auth.layer(env.WATCH_TOKEN),
@@ -24,7 +24,7 @@ const Api = HttpApiBuilder.layer(SidebandApi).pipe(
 )
 
 // Built once per isolate; layers are constructed on the first request.
-const { handler } = HttpRouter.toWebHandler(Api)
+const { handler } = HttpRouter.toWebHandler(ApiLive)
 
 export default {
   fetch: async (request, bindings) =>

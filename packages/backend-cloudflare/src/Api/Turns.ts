@@ -1,15 +1,8 @@
-import {
-  InvalidRequest,
-  MAX_AUDIO_BYTES,
-  PayloadTooLarge,
-  SidebandApi,
-  TranscriptionFailed,
-  UnsupportedMediaType
-} from "@sideband/protocol"
+import { Api, Errors, Turn } from "@sideband/protocol"
 import { Effect } from "effect"
 import { HttpApiBuilder } from "effect/http-api"
 import { canonicalWav, InvalidWav } from "../audio/wav.ts"
-import { RelayClient } from "../relay/RelayClient.ts"
+import { RelayClient } from "../Relay/RelayClient.ts"
 import { Transcription } from "../transcription/Transcription.ts"
 
 /**
@@ -31,7 +24,7 @@ const payloadHash = (payload: Uint8Array | { readonly text: string }) =>
  * one more provider call.
  */
 export const layer = HttpApiBuilder.group(
-  SidebandApi,
+  Api.SidebandApi,
   "turns",
   Effect.fnUntraced(function*(handlers) {
     const transcription = yield* Transcription
@@ -47,10 +40,10 @@ export const layer = HttpApiBuilder.group(
           let transcriptRaw: string | undefined
 
           if (!("text" in payload)) {
-            if (payload.byteLength > MAX_AUDIO_BYTES) {
-              return yield* new PayloadTooLarge({
+            if (payload.byteLength > Turn.MAX_AUDIO_BYTES) {
+              return yield* new Errors.PayloadTooLarge({
                 error: "payload_too_large",
-                message: `audio is ${payload.byteLength} bytes; the limit is ${MAX_AUDIO_BYTES}`,
+                message: `audio is ${payload.byteLength} bytes; the limit is ${Turn.MAX_AUDIO_BYTES}`,
                 retryable: false
               })
             }
@@ -58,7 +51,7 @@ export const layer = HttpApiBuilder.group(
             const audio = yield* Effect.try({
               try: () => canonicalWav(payload),
               catch: (cause) =>
-                new UnsupportedMediaType({
+                new Errors.UnsupportedMediaType({
                   error: "unsupported_media_type",
                   message: cause instanceof InvalidWav ? cause.message : "unreadable WAV",
                   retryable: false
@@ -68,7 +61,7 @@ export const layer = HttpApiBuilder.group(
             const result = yield* transcription.transcribe(audio, key).pipe(
               Effect.tapError((e) => Effect.logWarning(e.message)),
               Effect.mapError(() =>
-                new TranscriptionFailed({
+                new Errors.TranscriptionFailed({
                   error: "transcription_failed",
                   message: "transcription provider failed",
                   retryable: true
@@ -84,7 +77,7 @@ export const layer = HttpApiBuilder.group(
 
           // Silence or noise: nothing to send, so no turn is created.
           if (transcript.trim() === "") {
-            return yield* new InvalidRequest({
+            return yield* new Errors.InvalidRequest({
               error: "invalid_request",
               message: "no speech detected",
               retryable: false

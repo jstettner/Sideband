@@ -1,6 +1,6 @@
 import { Context, type Schema } from "effect"
 import { HttpApi, HttpApiEndpoint, HttpApiGroup, HttpApiMiddleware, HttpApiSecurity, OpenApi } from "effect/http-api"
-import { IdempotencyKey, SessionName } from "./common.ts"
+import { IdempotencyKey, SessionName } from "../Common/Common.ts"
 import {
   AgentOffline,
   IdempotencyConflict,
@@ -13,9 +13,9 @@ import {
   TranscriptionFailed,
   Unauthorized,
   UnsupportedMediaType
-} from "./errors.ts"
-import { SessionState, Status } from "./status.ts"
-import { AudioTurnBody, TextTurnBody, TurnState } from "./turn.ts"
+} from "../Errors/Errors.ts"
+import { SessionState, Status } from "../Status/Status.ts"
+import { AudioTurnBody, TextTurnBody, TurnState } from "../Turn/Turn.ts"
 
 /** The authenticated caller, provided by `Authorization` to every handler. */
 export class Principal extends Context.Service<Principal, {

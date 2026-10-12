@@ -1,4 +1,4 @@
-import { Authorization, Principal, Unauthorized } from "@sideband/protocol"
+import { Api, Errors } from "@sideband/protocol"
 import { Effect, Layer, Redacted } from "effect"
 
 const encoder = new TextEncoder()
@@ -14,7 +14,7 @@ export function constantTimeEqual(a: string, b: string): boolean {
   return diff === 0
 }
 
-const unauthorized = new Unauthorized({
+const unauthorized = new Errors.Unauthorized({
   error: "unauthorized",
   message: "missing or invalid bearer token",
   retryable: false
@@ -22,12 +22,12 @@ const unauthorized = new Unauthorized({
 
 /** Single-user MVP: one watch token, one principal. */
 export const layer = (watchToken: string) =>
-  Layer.succeed(Authorization)({
+  Layer.succeed(Api.Authorization)({
     bearer: Effect.fn("Authorization.bearer")(function*(effect, { credential }) {
       if (watchToken === "" || !constantTimeEqual(Redacted.value(credential), watchToken)) {
         return yield* unauthorized
       }
 
-      return yield* Effect.provideService(effect, Principal, { userId: "owner" })
+      return yield* Effect.provideService(effect, Api.Principal, { userId: "owner" })
     })
   })

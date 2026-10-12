@@ -1,5 +1,5 @@
 import { Schema } from "effect"
-import { AgentInfo, ContextUsage, IdempotencyKey, SessionName } from "./common.ts"
+import { AgentInfo, ContextUsage, IdempotencyKey, SessionName } from "../Common/Common.ts"
 
 /**
  * WebSocket messages between a backend's relay and a runner. See protocol/runner.md.
@@ -27,7 +27,7 @@ export const Hello = Schema.Struct({
   agent: AgentInfo,
   /** Turns this runner process is still executing, so the relay doesn't re-send them. */
   in_flight: Schema.Array(IdempotencyKey)
-})
+}).annotate({ identifier: "Hello" })
 
 export type Hello = typeof Hello.Type
 
@@ -35,7 +35,7 @@ export type Hello = typeof Hello.Type
 export const Ack = Schema.Struct({
   type: Schema.tag("ack"),
   key: IdempotencyKey
-})
+}).annotate({ identifier: "Ack" })
 
 export type Ack = typeof Ack.Type
 
@@ -48,7 +48,7 @@ export const TurnResult = Schema.Struct({
   speak_text: Schema.optionalKey(Schema.String),
   full_text: Schema.optionalKey(Schema.String),
   context: Schema.optionalKey(ContextUsage)
-})
+}).annotate({ identifier: "TurnResult" })
 
 export type TurnResult = typeof TurnResult.Type
 
@@ -57,7 +57,7 @@ export const TurnNeedsApproval = Schema.Struct({
   key: IdempotencyKey,
   agent_session_id: Schema.String,
   message: Schema.String
-})
+}).annotate({ identifier: "RunnerTurnNeedsApproval" })
 
 export type TurnNeedsApproval = typeof TurnNeedsApproval.Type
 
@@ -66,7 +66,7 @@ export const TurnFailed = Schema.Struct({
   key: IdempotencyKey,
   code: Schema.Literals(["agent_failed", "interrupted"]),
   message: Schema.String
-})
+}).annotate({ identifier: "RunnerTurnFailed" })
 
 export type TurnFailed = typeof TurnFailed.Type
 
@@ -78,7 +78,7 @@ export const TurnMerged = Schema.Struct({
   type: Schema.tag("merged"),
   key: IdempotencyKey,
   into: IdempotencyKey
-})
+}).annotate({ identifier: "RunnerTurnMerged" })
 
 export type TurnMerged = typeof TurnMerged.Type
 
@@ -87,7 +87,7 @@ export const SessionOpResult = Schema.Struct({
   op_id: OpId,
   agent_session_id: Schema.String,
   context: Schema.optionalKey(ContextUsage)
-})
+}).annotate({ identifier: "SessionOpResult" })
 
 export type SessionOpResult = typeof SessionOpResult.Type
 
@@ -96,7 +96,7 @@ export const SessionOpFailed = Schema.Struct({
   op_id: OpId,
   code: Schema.Literals(["not_supported", "agent_failed"]),
   message: Schema.String
-})
+}).annotate({ identifier: "SessionOpFailed" })
 
 export type SessionOpFailed = typeof SessionOpFailed.Type
 
@@ -109,7 +109,7 @@ export const RunnerMessage = Schema.Union([
   TurnMerged,
   SessionOpResult,
   SessionOpFailed
-]).pipe(Schema.toTaggedUnion("type"))
+]).annotate({ identifier: "RunnerMessage" }).pipe(Schema.toTaggedUnion("type"))
 
 export type RunnerMessage = typeof RunnerMessage.Type
 
@@ -123,7 +123,7 @@ export const Turn = Schema.Struct({
   /** Agent session to continue. Absent for a session's first turn. */
   agent_session_id: Schema.optionalKey(Schema.String),
   transcript: Schema.String
-})
+}).annotate({ identifier: "RunnerTurn" })
 
 export type Turn = typeof Turn.Type
 
@@ -140,7 +140,7 @@ export const Steer = Schema.Struct({
   /** Agent session of `into`, for running the steer as its own turn. */
   agent_session_id: Schema.optionalKey(Schema.String),
   transcript: Schema.String
-})
+}).annotate({ identifier: "Steer" })
 
 export type Steer = typeof Steer.Type
 
@@ -150,10 +150,12 @@ export const SessionOp = Schema.Struct({
   op: Schema.Literals(["new", "compact"]),
   session: SessionName,
   agent_session_id: Schema.optionalKey(Schema.String)
-})
+}).annotate({ identifier: "SessionOp" })
 
 export type SessionOp = typeof SessionOp.Type
 
-export const RelayMessage = Schema.Union([Turn, Steer, SessionOp]).pipe(Schema.toTaggedUnion("type"))
+export const RelayMessage = Schema.Union([Turn, Steer, SessionOp]).annotate({ identifier: "RelayMessage" }).pipe(
+  Schema.toTaggedUnion("type")
+)
 
 export type RelayMessage = typeof RelayMessage.Type

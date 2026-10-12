@@ -5,7 +5,7 @@ write your own backend (or runner, or client) against it.
 
 | File           | What                                                                          |
 | -------------- | ----------------------------------------------------------------------------- |
-| `openapi.json` | HTTP API, client ↔ backend. Generated from `src/Api.ts`                       |
+| `openapi.json` | HTTP API, client ↔ backend. Generated from `src/Api/Api.ts`                   |
 | `runner.md`    | WebSocket protocol, backend relay ↔ runner                                    |
 | `examples/`    | Sample payloads. Every file is decoded against its schema in `test/`          |
 | `src/`         | Effect Schemas and the `HttpApi` definition, shared by our backend and runner |

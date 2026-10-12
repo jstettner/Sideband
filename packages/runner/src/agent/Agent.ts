@@ -1,4 +1,4 @@
-import type { ContextUsage } from "@sideband/protocol"
+import type { Common } from "@sideband/protocol"
 import { Context, Data, Effect, Layer } from "effect"
 import { EchoConfig } from "../config.ts"
 
@@ -19,7 +19,7 @@ export type TurnOutcome =
     readonly agentSessionId: string
     readonly watchText: string
     readonly fullText?: string | undefined
-    readonly context?: ContextUsage | undefined
+    readonly context?: Common.ContextUsage | undefined
     /** Steer text that arrived too late for this answer. The agent dropped it; the caller may run it. */
     readonly pendingSteer?: string | undefined
   }
@@ -52,7 +52,7 @@ export class Agent extends Context.Service<Agent, {
     op: "new" | "compact",
     agentSessionId?: string | undefined
   ) => Effect.Effect<
-    { readonly agentSessionId: string; readonly context?: ContextUsage | undefined },
+    { readonly agentSessionId: string; readonly context?: Common.ContextUsage | undefined },
     NotSupported | AgentUnavailable
   >
 }>()("sideband/runner/agent/Agent") {

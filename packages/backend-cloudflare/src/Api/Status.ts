@@ -1,10 +1,10 @@
-import { SidebandApi } from "@sideband/protocol"
+import { Api } from "@sideband/protocol"
 import { Effect, Layer } from "effect"
 import { HttpApiBuilder } from "effect/http-api"
-import { RelayClient } from "../relay/RelayClient.ts"
+import { RelayClient } from "../Relay/RelayClient.ts"
 
 const status = HttpApiBuilder.group(
-  SidebandApi,
+  Api.SidebandApi,
   "status",
   Effect.fnUntraced(function*(handlers) {
     const relay = yield* RelayClient
@@ -14,7 +14,7 @@ const status = HttpApiBuilder.group(
 )
 
 const sessions = HttpApiBuilder.group(
-  SidebandApi,
+  Api.SidebandApi,
   "sessions",
   Effect.fnUntraced(function*(handlers) {
     const relay = yield* RelayClient

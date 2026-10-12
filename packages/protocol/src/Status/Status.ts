@@ -1,5 +1,5 @@
 import { Schema } from "effect"
-import { AgentInfo, ContextUsage, SessionName } from "./common.ts"
+import { AgentInfo, ContextUsage, SessionName } from "../Common/Common.ts"
 
 /** Backend's view of a session. Served without contacting the agent. */
 export const SessionState = Schema.Struct({

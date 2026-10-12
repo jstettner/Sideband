@@ -2,7 +2,7 @@
 // `--check` fails instead of writing when the committed file is out of date (for CI).
 import { OpenApi } from "effect/http-api"
 import { existsSync, readFileSync, writeFileSync } from "node:fs"
-import { SidebandApi } from "../Api.ts"
+import { SidebandApi } from "../Api/Api.ts"
 
 const path = new URL("../../openapi.json", import.meta.url)
 

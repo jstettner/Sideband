@@ -37,6 +37,6 @@ export type ContextUsage = typeof ContextUsage.Type
 /** The agent behind the backend, for display. Clients must not hardcode the agent name. */
 export const AgentInfo = Schema.Struct({
   name: Schema.String
-})
+}).annotate({ identifier: "AgentInfo" })
 
 export type AgentInfo = typeof AgentInfo.Type
