@@ -2,7 +2,7 @@
  * launchd, as far as installing the runner needs it: the per-user (`gui/<uid>`) domain's `launchctl`
  * subcommands. A narrow service, so installing is tested with a recording fake instead of the real launchd.
  */
-import { Context, Effect, Layer, Option, Schema, Stream, type Types } from "effect"
+import { Context, Duration, Effect, Layer, Option, Schedule, Schema, Stream, type Types } from "effect"
 import { ChildProcess, ChildProcessSpawner } from "effect/process"
 
 /** `launchctl` failed, or couldn't be run. */
@@ -22,13 +22,18 @@ export class Launchd extends Context.Service<Launchd, {
   readonly isLoaded: (label: string) => Effect.Effect<boolean, LaunchdError>
   /** Loads the job the property list at `plist` describes, which starts it (`RunAtLoad`). */
   readonly bootstrap: (plist: string) => Effect.Effect<void, LaunchdError>
-  /** Stops and unloads the job. */
+  /** Stops and unloads the job, returning once launchd no longer has it. */
   readonly bootout: (label: string) => Effect.Effect<void, LaunchdError>
   /** Restarts the job, killing it first if it's running. */
   readonly kickstart: (label: string) => Effect.Effect<void, LaunchdError>
   /** The job, if it's loaded. */
   readonly job: (label: string) => Effect.Effect<Option.Option<Job>, LaunchdError>
 }>()("@sideband/runner/Launchd") {}
+
+const UNLOAD_POLL = Duration.millis(100)
+
+/** How often `bootout` checks the job is gone before giving up: about ten seconds. */
+const UNLOAD_POLLS = 100
 
 /** Reads the fields {@link Job} needs from `launchctl print` output. */
 export const parsePrint = (output: string): Job => {
@@ -83,7 +88,19 @@ export const layer = (uid: number): Layer.Layer<Launchd, never, ChildProcessSpaw
           return Option.isSome(yield* job(label))
         }),
         bootstrap: Effect.fn("Launchd.bootstrap")((plist: string) => succeed(["bootstrap", domain, plist])),
-        bootout: Effect.fn("Launchd.bootout")((label: string) => succeed(["bootout", `${domain}/${label}`])),
+        // `launchctl bootout` returns while the job is still being torn down, and a `bootstrap` of the same
+        // label meanwhile fails with error 5 (Input/output error), so wait until the job is gone.
+        bootout: Effect.fn("Launchd.bootout")(function*(label: string) {
+          yield* succeed(["bootout", `${domain}/${label}`])
+
+          yield* job(label).pipe(
+            Effect.repeat({ schedule: Schedule.spaced(UNLOAD_POLL), until: Option.isNone, times: UNLOAD_POLLS }),
+            Effect.filterOrFail(
+              Option.isNone,
+              () => new LaunchdError({ message: `${label} was still loaded ${UNLOAD_POLLS} checks after bootout` })
+            )
+          )
+        }),
         kickstart: Effect.fn("Launchd.kickstart")((label: string) =>
           succeed(["kickstart", "-k", `${domain}/${label}`])
         ),
