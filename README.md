@@ -27,7 +27,8 @@ watch ──POST /v1/turn──▶ backend ──▶ transcription provider
 | `packages/backend-cloudflare/` | Reference backend: Cloudflare Worker + Relay Durable Object (Effect, deployed with Alchemy) |
 | `packages/runner/`             | Long-lived process next to the agent (Bun + Effect)                                         |
 
-Write your own backend or runner against `packages/protocol/`.
+Write your own backend or runner against `packages/protocol/`. `docs/architecture.md` shows how the pieces fit
+and how a turn moves through the relay.
 
 ## Development
 
