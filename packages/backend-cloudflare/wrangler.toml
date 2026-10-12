@@ -8,9 +8,11 @@ compatibility_date = "2026-10-01"
 [observability]
 enabled = true
 
-# The relay: one instance per user, holding the runner's WebSocket and turn/session state.
+# The relay: one instance per user, holding the runner's WebSocket and turn/session state. The binding is
+# named like the class, as Alchemy names it: adopting this script, Alchemy finds the existing class by its
+# binding name.
 [[durable_objects.bindings]]
-name = "RELAY"
+name = "Relay"
 class_name = "Relay"
 
 [[migrations]]

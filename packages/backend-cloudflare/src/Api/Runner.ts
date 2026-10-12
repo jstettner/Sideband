@@ -23,5 +23,5 @@ export function connect(request: Request, env: Cloudflare.Env): Promise<Response
     )
   }
 
-  return env.RELAY.getByName("owner").fetch(request)
+  return env.Relay.getByName("owner").fetch(request)
 }

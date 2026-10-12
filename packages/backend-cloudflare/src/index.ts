@@ -18,7 +18,7 @@ const ApiLive = HttpApiBuilder.layer(Api.SidebandApi).pipe(
   Layer.provide([
     Auth.layer(env.WATCH_TOKEN),
     Providers.layer.pipe(Layer.provide(FetchHttpClient.layer)),
-    RelayClient.layer(env.RELAY)
+    RelayClient.layer(env.Relay)
   ]),
   Layer.provide(HttpServer.layerServices),
   // Providers read their settings (`SIDEBAND_TRANSCRIPTION`, `AQUA_API_KEY`) from the Worker's vars and secrets.
