@@ -6,10 +6,10 @@
   <string>com.sideband.runner</string>
   <key>ProgramArguments</key>
   <array>
-    <string>/ABSOLUTE/PATH/TO/sideband/runner/dist/sideband-runner</string>
+    <string>/ABSOLUTE/PATH/TO/sideband/packages/runner/dist/sideband-runner</string>
   </array>
   <key>WorkingDirectory</key>
-  <string>/ABSOLUTE/PATH/TO/sideband/runner</string>
+  <string>/ABSOLUTE/PATH/TO/sideband/packages/runner</string>
   <key>RunAtLoad</key>
   <true/>
   <!-- Restart after crashes, but not after a clean exit (another runner replaced this one). -->
