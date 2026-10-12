@@ -6,6 +6,7 @@
  * added to the answer, except those in the last quarter of the delay, which come back as
  * `pendingSteer` (like Hermes when the final reply is already being written).
  */
+import { Common } from "@sideband/protocol"
 import { Clock, Config, Effect, Layer } from "effect"
 import { Agent, NotSupported, TurnOutcome } from "../Agent/Agent.ts"
 
@@ -16,7 +17,10 @@ export const config = Config.all({
 
 export const layer = (options: Config.Success<typeof config>): Layer.Layer<Agent> =>
   Layer.sync(Agent, () => {
-    const running = new Map<string, { readonly lateAt: number; steers: Array<string>; late: Array<string> }>()
+    const running = new Map<
+      Common.IdempotencyKey,
+      { readonly lateAt: number; steers: Array<string>; late: Array<string> }
+    >()
 
     return Agent.of({
       name: "echo",
@@ -27,7 +31,7 @@ export const layer = (options: Config.Success<typeof config>): Layer.Layer<Agent
 
         return TurnOutcome.cases.Completed.make({
           // A session's first turn names the session after itself, so a re-sent key gets the same one.
-          agentSessionId: agentSessionId ?? `echo-${key}`,
+          agentSessionId: agentSessionId ?? Common.AgentSessionId.make(`echo-${key}`),
           watchText: [transcript, ...turn.steers.map((steer) => `+ ${steer}`)].join("\n"),
           pendingSteer: turn.late.length > 0 ? turn.late.join("\n") : undefined
         })
@@ -45,7 +49,7 @@ export const layer = (options: Config.Success<typeof config>): Layer.Layer<Agent
       sessionOp: Effect.fn("Echo.sessionOp")(function*(op) {
         if (op !== "new") return yield* new NotSupported({ message: "echo has no context to compact" })
 
-        return { agentSessionId: `echo-${crypto.randomUUID()}` }
+        return { agentSessionId: Common.AgentSessionId.make(`echo-${crypto.randomUUID()}`) }
       })
     })
   })

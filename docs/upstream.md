@@ -4,14 +4,24 @@ Workarounds for upstream bugs and fixes that haven't been released yet, grouped 
 ship. Before bumping one of those pins, check its section for what the new version lets you remove. An entry is
 deleted in the same change that removes its workaround.
 
-## Effect
+## Alchemy
 
-### `@effect/platform-node-shared` held at the catalog's Effect version
+### JSON logs need a provide around every handler
 
-- **What:** `overrides` in the root `package.json` pins `@effect/platform-node-shared` to 4.0.2. `@effect/platform-bun`
-  4.0.2 depends on it with `^4.0.2`, so a fresh resolve picks 4.0.3, whose `effect` peer is `^4.0.3`: Bun then
-  warns about an incorrect peer dependency, and two Effect patch versions meet at runtime.
-- **Blocked on:** nothing upstream will fix; this lasts as long as the catalog is on 4.0.2.
-- **To remove:** when the catalog moves `effect` and the `@effect/*` packages to 4.0.3 or later, set the override
-  to the same version, or delete it if `bun install` resolves `@effect/platform-node-shared` to the catalog's
-  version without it.
+- **What:** `JsonLogs` in `packages/backend-cloudflare/src/Layers.ts`, provided around the Worker's `fetch` and
+  its router's construction (`serve` in `Sideband/SidebandWorker.ts`), and around each Relay method and socket
+  handler (`Relay/RelayDO.ts`). Alchemy's Worker bridge installs `Logger.consolePretty` as the outermost logger,
+  so each handler has to override it from the inside; HttpApi handlers keep the context their router was built
+  in, so the build needs it too.
+- **Blocked on:** alchemy#1954 (open, no fix yet).
+- **To remove:** once the bridge lets a Worker choose its logger, choose `Logger.consoleJson` once, delete the
+  per-handler provides, and update the logging rule in `AGENTS.md`.
+
+### Compatibility date pinned to `2026-09-25`
+
+- **What:** `compatibility: { date: "2026-09-25" }` in `packages/backend-cloudflare/src/Sideband/SidebandWorker.ts`.
+  That is the newest date the workerd bundled with alchemy@2.0.0-beta.81 supports, and local dev refuses later
+  ones.
+- **Blocked on:** an Alchemy release that bundles a newer workerd.
+- **To remove:** after bumping Alchemy, move the date to the newest the new workerd supports and update the
+  comment.

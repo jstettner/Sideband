@@ -1,227 +1,125 @@
-/* oxlint-disable -- Replaced by SQL functions over Effect's SqlClient. */
-import type { Runner } from "@sideband/protocol"
-
 /**
- * The relay's SQLite storage. Everything that must survive hibernation lives here; only
- * `Relay.ts` uses it. Timestamps are epoch milliseconds.
+ * The Relay's SQLite: the rows `Lifecycle.read` loads, and one `save` of the rows a step writes. Plain
+ * functions over `SqlClient`, so nothing here knows it runs in a Durable Object; the schema is
+ * `Migrations.ts`. Timestamps are epoch milliseconds.
  */
+import { Common } from "@sideband/protocol"
+import { Effect, Option, Schema } from "effect"
+import { SqlClient, type SqlError, SqlSchema } from "effect/sql"
+import { OpenTurnRow, SessionRow, type Source, TurnRow, type Writes } from "./Lifecycle.ts"
 
-/** `pending` → `sent` → `acked` → `done` (outcome stored) or `unknown` (outcome lost). */
-export type TurnStatus = "pending" | "sent" | "acked" | "done" | "unknown"
-
-/** What the runner reported for a turn, stored as `outcome_json`. */
-export type Outcome = Runner.TurnResult | Runner.TurnNeedsApproval | Runner.TurnFailed | Runner.TurnMerged
-
-export interface TurnRow {
-  readonly key: string
-  readonly session: string
-  readonly payload_hash: string
-  readonly transcript: string
-  readonly transcript_raw: string | null
-  readonly state: TurnStatus
-  readonly outcome_json: string | null
-  /** Key of the turn this one was sent to steer, if it was a steer. */
-  readonly steer_into: string | null
-  readonly created_at: number
-  readonly updated_at: number
-}
-
-export interface SessionRow {
-  readonly name: string
-  readonly agent_session_id: string | null
-  readonly active_key: string | null
-  readonly context_used: number | null
-  readonly context_limit: number | null
-  readonly last_activity: number | null
-}
-
-export const isResolved = (row: TurnRow): boolean => row.state === "done" || row.state === "unknown"
-
-/**
- * Schema changes, applied in order. `schema_version` records how many have run, so each runs
- * once per object. (Durable Objects don't allow `PRAGMA user_version`.) Append only; never edit
- * one that has shipped.
- */
-const migrations: ReadonlyArray<string> = [
-  // 1: turns and sessions. IF NOT EXISTS: the first deploy created these before versioning.
-  `CREATE TABLE IF NOT EXISTS turns (
-     key            TEXT PRIMARY KEY,
-     session        TEXT NOT NULL,
-     payload_hash   TEXT NOT NULL,
-     transcript     TEXT NOT NULL,
-     transcript_raw TEXT,
-     state          TEXT NOT NULL,
-     outcome_json   TEXT,
-     created_at     INTEGER NOT NULL,
-     updated_at     INTEGER NOT NULL
-   );
-   CREATE INDEX IF NOT EXISTS turns_state ON turns (state);
-   CREATE TABLE IF NOT EXISTS sessions (
-     name             TEXT PRIMARY KEY,
-     agent_session_id TEXT,
-     active_key       TEXT,
-     context_used     INTEGER,
-     context_limit    INTEGER,
-     last_activity    INTEGER
-   );`,
-  // 2: steering
-  `ALTER TABLE turns ADD COLUMN steer_into TEXT;
-   CREATE INDEX turns_steer_into ON turns (steer_into);`
-]
-
-/** `storage.kv` key: the agent behind the last runner that said hello, for status while offline. */
+/** `relay_meta` key: the agent behind the last runner that said hello, for status while offline. */
 const AGENT_NAME = "agent_name"
 
-export class Store {
-  private readonly sql: SqlStorage
-  private readonly kv: SyncKvStorage
+export const turn = Effect.fn("Store.turn")(function*(key: Common.IdempotencyKey) {
+  const sql = yield* SqlClient.SqlClient
 
-  constructor(storage: DurableObjectStorage) {
-    this.sql = storage.sql
-    this.kv = storage.kv
-    storage.transactionSync(() => {
-      this.sql.exec("CREATE TABLE IF NOT EXISTS schema_version (version INTEGER NOT NULL)")
-      const version = this.sql.exec<{ version: number }>("SELECT version FROM schema_version").toArray()[0]?.version ??
-        0
-      for (const migration of migrations.slice(version)) this.sql.exec(migration)
-      this.sql.exec("DELETE FROM schema_version")
-      this.sql.exec("INSERT INTO schema_version (version) VALUES (?)", migrations.length)
-    })
-  }
+  return yield* SqlSchema.findOneOption({
+    Request: Common.IdempotencyKey,
+    Result: TurnRow,
+    execute: (k) => sql`SELECT * FROM turns WHERE key = ${k}`
+  })(key)
+})
 
-  agentName(): string | undefined {
-    return this.kv.get<string>(AGENT_NAME)
-  }
+/** Turns still waiting for an outcome, oldest first. */
+export const openTurns = Effect.gen(function*() {
+  const sql = yield* SqlClient.SqlClient
 
-  setAgentName(name: string): void {
-    this.kv.put(AGENT_NAME, name)
-  }
+  return yield* SqlSchema.findAll({
+    Request: Schema.Void,
+    Result: OpenTurnRow,
+    execute: () => sql`SELECT * FROM turns WHERE state IN ('sent', 'acked') ORDER BY created_at`
+  })(undefined)
+}).pipe(Effect.withSpan("Store.openTurns"))
 
-  turn(key: string): TurnRow | undefined {
-    return this.sql.exec<TurnRow & Record<string, SqlStorageValue>>("SELECT * FROM turns WHERE key = ?", key)
-      .toArray()[0]
-  }
+/** Open steers into the turn `key`, oldest first. */
+export const openSteersInto = Effect.fn("Store.openSteersInto")(function*(key: Common.IdempotencyKey) {
+  const sql = yield* SqlClient.SqlClient
 
-  /** Turns still waiting for an outcome, oldest first. */
-  unresolvedTurns(): Array<TurnRow> {
-    return this.sql.exec<TurnRow & Record<string, SqlStorageValue>>(
-      "SELECT * FROM turns WHERE state IN ('pending', 'sent', 'acked') ORDER BY created_at"
-    ).toArray()
-  }
+  return yield* SqlSchema.findAll({
+    Request: Common.IdempotencyKey,
+    Result: OpenTurnRow,
+    execute: (k) => sql`SELECT * FROM turns WHERE steer_into = ${k} AND state IN ('sent', 'acked') ORDER BY created_at`
+  })(key)
+})
 
-  /**
-   * Inserts a new turn and makes it its session's active turn. A steer (`steerInto`) leaves the
-   * active turn alone: it's answered through that turn.
-   */
-  claim(
-    turn: {
-      readonly key: string
-      readonly session: string
-      readonly payloadHash: string
-      readonly transcript: string
-      readonly transcriptRaw?: string | undefined
-    },
-    now: number,
-    steerInto?: string
-  ): void {
-    this.sql.exec(
-      `INSERT INTO turns (key, session, payload_hash, transcript, transcript_raw, state, steer_into, created_at, updated_at)
-       VALUES (?, ?, ?, ?, ?, 'pending', ?, ?, ?)`,
-      turn.key,
-      turn.session,
-      turn.payloadHash,
-      turn.transcript,
-      turn.transcriptRaw ?? null,
-      steerInto ?? null,
-      now,
-      now
-    )
-    if (steerInto !== undefined) {
-      this.sql.exec("UPDATE sessions SET last_activity = ? WHERE name = ?", now, turn.session)
-      return
-    }
-    this.sql.exec(
-      `INSERT INTO sessions (name, active_key, last_activity) VALUES (?, ?, ?)
-       ON CONFLICT (name) DO UPDATE SET active_key = excluded.active_key, last_activity = excluded.last_activity`,
-      turn.session,
-      turn.key,
-      now
-    )
-  }
+export const session = Effect.fn("Store.session")(function*(name: Common.SessionName) {
+  const sql = yield* SqlClient.SqlClient
 
-  setState(key: string, state: "sent" | "acked", now: number): void {
-    this.sql.exec("UPDATE turns SET state = ?, updated_at = ? WHERE key = ?", state, now, key)
-  }
+  return yield* SqlSchema.findOneOption({
+    Request: Common.SessionName,
+    Result: SessionRow,
+    execute: (n) => sql`SELECT * FROM sessions WHERE name = ${n}`
+  })(name)
+})
 
-  /**
-   * Stores the outcome (or marks it lost). If `row` was its session's active turn, the latest
-   * unresolved steer into it takes over (the runner may still run it on its own); otherwise the
-   * session is free for the next turn.
-   */
-  resolve(row: TurnRow, outcome: Outcome | undefined, now: number): void {
-    this.sql.exec(
-      "UPDATE turns SET state = ?, outcome_json = ?, updated_at = ? WHERE key = ?",
-      outcome ? "done" : "unknown",
-      outcome ? JSON.stringify(outcome) : null,
-      now,
-      row.key
-    )
-    this.sql.exec(
-      `UPDATE sessions SET
-         active_key = (SELECT key FROM turns WHERE steer_into = ? AND state IN ('pending', 'sent', 'acked')
-                       ORDER BY created_at DESC LIMIT 1),
-         last_activity = ?
-       WHERE name = ? AND active_key = ?`,
-      row.key,
-      now,
-      row.session,
-      row.key
-    )
-    if (outcome && (outcome.type === "result" || outcome.type === "needs_approval")) {
-      this.setAgentSession(
-        row.session,
-        outcome.agent_session_id,
-        outcome.type === "result" ? outcome.context : undefined,
-        now
-      )
-    }
-  }
-
-  /** Deletes resolved turns last updated before `before`. Returns how many. */
-  prune(before: number): number {
-    return this.sql.exec("DELETE FROM turns WHERE state IN ('done', 'unknown') AND updated_at < ?", before)
-      .rowsWritten
-  }
-
-  session(name: string): SessionRow | undefined {
-    return this.sql.exec<SessionRow & Record<string, SqlStorageValue>>("SELECT * FROM sessions WHERE name = ?", name)
-      .toArray()[0]
-  }
-
-  /**
-   * Records the agent session now behind `name`, and its context usage if reported. Keeps the
-   * last known usage when none is reported, unless the agent session changed.
-   */
-  setAgentSession(
-    name: string,
-    agentSessionId: string,
-    context: { readonly used_tokens: number; readonly limit_tokens: number } | undefined,
-    now: number
-  ): void {
-    this.sql.exec(
-      `INSERT INTO sessions (name, agent_session_id, context_used, context_limit, last_activity) VALUES (?, ?, ?, ?, ?)
-       ON CONFLICT (name) DO UPDATE SET
-         agent_session_id = excluded.agent_session_id,
-         context_used = CASE WHEN excluded.context_used IS NULL AND sessions.agent_session_id IS excluded.agent_session_id
-           THEN sessions.context_used ELSE excluded.context_used END,
-         context_limit = CASE WHEN excluded.context_used IS NULL AND sessions.agent_session_id IS excluded.agent_session_id
-           THEN sessions.context_limit ELSE excluded.context_limit END,
-         last_activity = excluded.last_activity`,
-      name,
-      agentSessionId,
-      context?.used_tokens ?? null,
-      context?.limit_tokens ?? null,
-      now
-    )
-  }
+/** The rows `Lifecycle.read` loads, from this object's SQLite. */
+export const source: Source<SqlError.SqlError | Schema.SchemaError, SqlClient.SqlClient> = {
+  turn,
+  session,
+  openTurns,
+  openSteersInto
 }
+
+export const agentName = Effect.gen(function*() {
+  const sql = yield* SqlClient.SqlClient
+
+  const row = yield* SqlSchema.findOneOption({
+    Request: Schema.String,
+    Result: Schema.Struct({ value: Schema.String }),
+    execute: (k) => sql`SELECT value FROM relay_meta WHERE key = ${k}`
+  })(AGENT_NAME)
+
+  return Option.getOrUndefined(Option.map(row, ({ value }) => value))
+}).pipe(Effect.withSpan("Store.agentName"))
+
+/** Writes a step's rows (whole-row upserts). Returns how many turns were pruned. */
+export const save = Effect.fn("Store.save")(function*(writes: Writes) {
+  const sql = yield* SqlClient.SqlClient
+
+  for (const row of writes.turns) {
+    const encoded = yield* Schema.encodeEffect(TurnRow)(row)
+
+    yield* sql`
+      INSERT INTO turns ${sql.insert(encoded)}
+      ON CONFLICT (key) DO UPDATE SET
+        session = excluded.session,
+        payload_hash = excluded.payload_hash,
+        transcript = excluded.transcript,
+        transcript_raw = excluded.transcript_raw,
+        state = excluded.state,
+        outcome_json = excluded.outcome_json,
+        steer_into = excluded.steer_into,
+        created_at = excluded.created_at,
+        updated_at = excluded.updated_at
+    `
+  }
+
+  for (const row of writes.sessions) {
+    const encoded = yield* Schema.encodeEffect(SessionRow)(row)
+
+    yield* sql`
+      INSERT INTO sessions ${sql.insert(encoded)}
+      ON CONFLICT (name) DO UPDATE SET
+        agent_session_id = excluded.agent_session_id,
+        active_key = excluded.active_key,
+        context_json = excluded.context_json,
+        last_activity = excluded.last_activity
+    `
+  }
+
+  if (writes.agentName !== undefined) {
+    yield* sql`
+      INSERT INTO relay_meta (key, value) VALUES (${AGENT_NAME}, ${writes.agentName})
+      ON CONFLICT (key) DO UPDATE SET value = excluded.value
+    `
+  }
+
+  if (writes.pruneBefore === undefined) return 0
+
+  const pruned = yield* sql`
+    DELETE FROM turns WHERE state IN ('done', 'unknown') AND updated_at < ${writes.pruneBefore} RETURNING key
+  `
+
+  return pruned.length
+})

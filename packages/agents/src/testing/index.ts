@@ -3,6 +3,7 @@
  * is tested without Hermes.
  */
 import { expect, layer } from "@effect/vitest"
+import { Common } from "@sideband/protocol"
 import { Effect, Layer, Redacted, Schema } from "effect"
 import { HttpBody, HttpClient, type HttpClientRequest, HttpClientResponse } from "effect/http"
 import { Agent } from "../Agent/Agent.ts"
@@ -12,7 +13,7 @@ import * as HermesClient from "../Hermes/HermesClient.ts"
 let turns = 0
 
 /** A turn key no earlier test used, so suites that share an agent don't see each other's turns. */
-const freshKey = () => `contract-turn-${String(++turns).padStart(8, "0")}`
+const freshKey = () => Common.IdempotencyKey.make(`contract-turn-${String(++turns).padStart(8, "0")}`)
 
 /**
  * Registers the `Agent` contract tests against `agent` (protocol/runner.md). The layer is built once
@@ -60,7 +61,7 @@ export const agentContract = (name: string, agent: Layer.Layer<Agent, unknown>):
 /** How the runs a {@link HermesApi} creates go. */
 export interface HermesScript {
   /** The status a run settles in. Default: completed, answering with its input. */
-  readonly settle?: (input: string, sessionId: string) => HermesClient.SettledRun
+  readonly settle?: (input: string, sessionId: Common.AgentSessionId) => HermesClient.SettledRun
   /** `GET /v1/runs/{id}` answers `running` this many times before the settled status. Default 0. */
   readonly pendingReads?: number
   /** `GET /v1/runs/{id}/events` answers `404`, as when an earlier reader took the run's stream. */
@@ -81,7 +82,7 @@ export interface HermesApi {
 const CreateRun = Schema.fromJsonString(Schema.Struct({
   input: Schema.String,
   instructions: Schema.String,
-  session_id: Schema.optionalKey(Schema.String)
+  session_id: Schema.optionalKey(Common.AgentSessionId)
 }))
 
 /** The event Hermes emits when a run reaches each settled status. */
@@ -128,7 +129,7 @@ export const makeHermesApi = (script: HermesScript = {}): HermesApi => {
     )
 
     const runId = `run-${runs.size + 1}`
-    runs.set(runId, { settled: settle(body.input, body.session_id ?? runId), reads: 0 })
+    runs.set(runId, { settled: settle(body.input, body.session_id ?? Common.AgentSessionId.make(runId)), reads: 0 })
     runByKey.set(key, runId)
 
     return json(request, 202, { run_id: runId, replayed: false })

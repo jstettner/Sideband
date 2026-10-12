@@ -88,11 +88,23 @@
                           "properties": {
                             "used_tokens": {
                               "type": "integer",
-                              "minimum": 0
+                              "minimum": -9007199254740991,
+                              "maximum": 9007199254740991,
+                              "allOf": [
+                                {
+                                  "minimum": 0
+                                }
+                              ]
                             },
                             "limit_tokens": {
                               "type": "integer",
-                              "minimum": 0
+                              "minimum": -9007199254740991,
+                              "maximum": 9007199254740991,
+                              "allOf": [
+                                {
+                                  "minimum": 0
+                                }
+                              ]
                             }
                           },
                           "required": [
@@ -283,7 +295,13 @@
                     },
                     "retry_after_ms": {
                       "type": "integer",
-                      "minimum": 0
+                      "minimum": -9007199254740991,
+                      "maximum": 9007199254740991,
+                      "allOf": [
+                        {
+                          "minimum": 0
+                        }
+                      ]
                     }
                   },
                   "required": [
@@ -484,11 +502,23 @@
                           "properties": {
                             "used_tokens": {
                               "type": "integer",
-                              "minimum": 0
+                              "minimum": -9007199254740991,
+                              "maximum": 9007199254740991,
+                              "allOf": [
+                                {
+                                  "minimum": 0
+                                }
+                              ]
                             },
                             "limit_tokens": {
                               "type": "integer",
-                              "minimum": 0
+                              "minimum": -9007199254740991,
+                              "maximum": 9007199254740991,
+                              "allOf": [
+                                {
+                                  "minimum": 0
+                                }
+                              ]
                             }
                           },
                           "required": [
@@ -679,7 +709,13 @@
                     },
                     "retry_after_ms": {
                       "type": "integer",
-                      "minimum": 0
+                      "minimum": -9007199254740991,
+                      "maximum": 9007199254740991,
+                      "allOf": [
+                        {
+                          "minimum": 0
+                        }
+                      ]
                     }
                   },
                   "required": [
@@ -797,11 +833,23 @@
                           "properties": {
                             "used_tokens": {
                               "type": "integer",
-                              "minimum": 0
+                              "minimum": -9007199254740991,
+                              "maximum": 9007199254740991,
+                              "allOf": [
+                                {
+                                  "minimum": 0
+                                }
+                              ]
                             },
                             "limit_tokens": {
                               "type": "integer",
-                              "minimum": 0
+                              "minimum": -9007199254740991,
+                              "maximum": 9007199254740991,
+                              "allOf": [
+                                {
+                                  "minimum": 0
+                                }
+                              ]
                             }
                           },
                           "required": [
@@ -905,11 +953,23 @@
                       "properties": {
                         "used_tokens": {
                           "type": "integer",
-                          "minimum": 0
+                          "minimum": -9007199254740991,
+                          "maximum": 9007199254740991,
+                          "allOf": [
+                            {
+                              "minimum": 0
+                            }
+                          ]
                         },
                         "limit_tokens": {
                           "type": "integer",
-                          "minimum": 0
+                          "minimum": -9007199254740991,
+                          "maximum": 9007199254740991,
+                          "allOf": [
+                            {
+                              "minimum": 0
+                            }
+                          ]
                         }
                       },
                       "required": [
@@ -1037,11 +1097,23 @@
                       "properties": {
                         "used_tokens": {
                           "type": "integer",
-                          "minimum": 0
+                          "minimum": -9007199254740991,
+                          "maximum": 9007199254740991,
+                          "allOf": [
+                            {
+                              "minimum": 0
+                            }
+                          ]
                         },
                         "limit_tokens": {
                           "type": "integer",
-                          "minimum": 0
+                          "minimum": -9007199254740991,
+                          "maximum": 9007199254740991,
+                          "allOf": [
+                            {
+                              "minimum": 0
+                            }
+                          ]
                         }
                       },
                       "required": [

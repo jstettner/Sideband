@@ -2,13 +2,13 @@ import { describe, expect, it } from "@effect/vitest"
 import { Api } from "@sideband/protocol"
 import type { Transcription } from "@sideband/transcription"
 import * as FakeTranscription from "@sideband/transcription/testing"
-import { Effect, Layer } from "effect"
+import { Effect, Layer, Redacted } from "effect"
 import { HttpRouter, HttpServer } from "effect/http"
 import { HttpApiBuilder } from "effect/http-api"
 import * as Auth from "../src/Api/Auth.ts"
 import * as Status from "../src/Api/Status.ts"
 import * as Turns from "../src/Api/Turns.ts"
-import type { SubmitTurn } from "../src/Relay/Relay.ts"
+import type { SubmitTurn } from "../src/Relay/Lifecycle.ts"
 import { RelayClient } from "../src/Relay/RelayClient.ts"
 
 const KEY = "4f9c2d7e-8b1a-4c3e-9f2d-6a5b8c7d9e0f"
@@ -70,7 +70,7 @@ const api = Effect.fnUntraced(function*(transcription: Layer.Layer<Transcription
       HttpRouter.toWebHandler(
         HttpApiBuilder.layer(Api.SidebandApi).pipe(
           Layer.provide([Turns.layer, Status.layer]),
-          Layer.provide([Auth.layer("watch-token"), transcription, relay]),
+          Layer.provide([Auth.layer(Redacted.make("watch-token")), transcription, relay]),
           Layer.provide(HttpServer.layerServices)
         ),
         { disableLogger: true }

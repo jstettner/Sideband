@@ -20,11 +20,15 @@ const unauthorized = new Errors.Unauthorized({
   retryable: false
 })
 
-/** Single-user MVP: one watch token, one principal. */
-export const layer = (watchToken: string) =>
+/** Whether `given` is `expected`, which must be set: an empty token matches nothing. */
+export const matches = (given: string, expected: Redacted.Redacted<string>): boolean =>
+  Redacted.value(expected) !== "" && constantTimeEqual(given, Redacted.value(expected))
+
+/** Single user: one watch token, one principal. */
+export const layer = (watchToken: Redacted.Redacted<string>) =>
   Layer.succeed(Api.Authorization)({
     bearer: Effect.fn("Authorization.bearer")(function*(effect, { credential }) {
-      if (watchToken === "" || !constantTimeEqual(Redacted.value(credential), watchToken)) {
+      if (!matches(Redacted.value(credential), watchToken)) {
         return yield* unauthorized
       }
 

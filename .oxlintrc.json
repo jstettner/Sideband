@@ -40,7 +40,7 @@
   "ignorePatterns": [
     "reference/**",
     "**/node_modules/**",
-    "**/.wrangler/**",
+    "**/.alchemy/**",
     "**/.tsbuild/**",
     // Local notes and the vendored anti-slop plugin are not our source.
     ".local/**",

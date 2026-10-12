@@ -15,14 +15,14 @@ export class NotSupported extends Schema.TaggedError<NotSupported>()("NotSupport
 export const TurnOutcome = Schema.TaggedUnion({
   Completed: {
     /** Agent session the turn ran in; may differ from the one passed in. */
-    agentSessionId: Schema.String,
+    agentSessionId: Common.AgentSessionId,
     watchText: Schema.String,
     fullText: Schema.optional(Schema.String),
     context: Schema.optional(Common.ContextUsage),
     /** Steer text that arrived too late for this answer. The agent dropped it; the caller may run it. */
     pendingSteer: Schema.optional(Schema.String)
   },
-  NeedsApproval: { agentSessionId: Schema.String, message: Schema.String },
+  NeedsApproval: { agentSessionId: Common.AgentSessionId, message: Schema.String },
   Failed: { code: Schema.Literals(["agent_failed", "interrupted"]), message: Schema.String }
 }).annotate({ identifier: "TurnOutcome" })
 
@@ -37,8 +37,8 @@ export class Agent extends Context.Service<Agent, {
    * most once against the agent (see protocol/runner.md, "Never twice").
    */
   readonly runTurn: (turn: {
-    readonly key: string
-    readonly agentSessionId?: string | undefined
+    readonly key: Common.IdempotencyKey
+    readonly agentSessionId?: Common.AgentSessionId | undefined
     readonly transcript: string
   }) => Effect.Effect<TurnOutcome, AgentUnavailable>
   /**
@@ -47,14 +47,14 @@ export class Agent extends Context.Service<Agent, {
    * idempotent, so after `AgentUnavailable` the steer may or may not have been delivered.
    */
   readonly steerTurn: (steer: {
-    readonly key: string
+    readonly key: Common.IdempotencyKey
     readonly transcript: string
   }) => Effect.Effect<"Steered" | "NotRunning", AgentUnavailable>
   readonly sessionOp: (
     op: "new" | "compact",
-    agentSessionId?: string | undefined
+    agentSessionId?: Common.AgentSessionId | undefined
   ) => Effect.Effect<
-    { readonly agentSessionId: string; readonly context?: Common.ContextUsage | undefined },
+    { readonly agentSessionId: Common.AgentSessionId; readonly context?: Common.ContextUsage | undefined },
     NotSupported | AgentUnavailable
   >
 }>()("@sideband/agents/Agent") {}

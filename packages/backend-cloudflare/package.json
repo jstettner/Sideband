@@ -3,19 +3,25 @@
   "version": "0.0.0",
   "private": true,
   "type": "module",
+  "description": "The reference backend: a Cloudflare Worker serving the watch API and the Relay Durable Object, and the Alchemy stack that declares them.",
   "scripts": {
-    "dev": "wrangler dev",
-    "deploy": "wrangler deploy"
+    "deploy": "alchemy deploy --stage prod --env-file ../../.env.prod"
   },
   "dependencies": {
+    "@effect/sql-sqlite-do": "catalog:",
     "@sideband/protocol": "workspace:*",
     "@sideband/transcription": "workspace:*",
+    "alchemy": "catalog:",
     "effect": "catalog:"
   },
   "devDependencies": {
     "@cloudflare/workers-types": "catalog:",
+    "@effect/platform-node": "catalog:",
+    "@effect/sql-sqlite-node": "catalog:",
     "@effect/vitest": "catalog:",
-    "vitest": "catalog:",
-    "wrangler": "catalog:"
+    "@sideband/agents": "workspace:*",
+    "@sideband/runner": "workspace:*",
+    "@types/node": "catalog:",
+    "vitest": "catalog:"
   }
 }

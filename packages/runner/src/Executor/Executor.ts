@@ -1,5 +1,5 @@
 import { Agent } from "@sideband/agents"
-import type { Runner } from "@sideband/protocol"
+import type { Common, Runner } from "@sideband/protocol"
 import { Context, Deferred, Effect, FiberSet, Layer, type Types } from "effect"
 
 /** Sends a message to the relay (or holds it until the next connection). */
@@ -7,14 +7,14 @@ export type Emit = (message: Runner.RunnerMessage) => Effect.Effect<void>
 
 /** A steer sent into a running turn, and whether the agent took it. */
 interface Steer {
-  readonly key: string
+  readonly key: Common.IdempotencyKey
   readonly delivered: Deferred.Deferred<"Steered" | "NotRunning" | "Failed">
 }
 
 /** What a turn's run produced: the outcome to send, and what its steers need. */
 interface Ran {
   readonly message: Runner.RunnerMessage
-  readonly agentSessionId?: string | undefined
+  readonly agentSessionId?: Common.AgentSessionId | undefined
   readonly pendingSteer?: string | undefined
 }
 
@@ -25,7 +25,7 @@ interface Ran {
  */
 export class Executor extends Context.Service<Executor, {
   /** Keys this process is still executing, for `hello.in_flight`. */
-  readonly inFlight: Effect.Effect<ReadonlyArray<string>>
+  readonly inFlight: Effect.Effect<ReadonlyArray<Common.IdempotencyKey>>
   /** Starts a turn: `ack` now, then exactly one outcome. Returns without waiting for it. */
   readonly run: (turn: Runner.Turn, emit: Emit) => Effect.Effect<void>
   /**
@@ -41,12 +41,16 @@ export class Executor extends Context.Service<Executor, {
     Effect.gen(function*() {
       const agent = yield* Agent.Agent
       const fibers = yield* FiberSet.make()
-      const inFlight = new Set<string>()
+      const inFlight = new Set<Common.IdempotencyKey>()
       /** Steers into each turn whose run is in progress here, in arrival order, by turn key. */
-      const steerable = new Map<string, Array<Steer>>()
+      const steerable = new Map<Common.IdempotencyKey, Array<Steer>>()
 
       const execute = (
-        turn: { readonly key: string; readonly agentSessionId?: string | undefined; readonly transcript: string }
+        turn: {
+          readonly key: Common.IdempotencyKey
+          readonly agentSessionId?: Common.AgentSessionId | undefined
+          readonly transcript: string
+        }
       ) =>
         agent.runTurn(turn).pipe(
           Effect.map(Agent.TurnOutcome.match({
@@ -97,7 +101,7 @@ export class Executor extends Context.Service<Executor, {
         )
 
       /** Sends `key`'s outcome; it's no longer in flight. */
-      const settle = (key: string, message: Runner.RunnerMessage, emit: Emit) =>
+      const settle = (key: Common.IdempotencyKey, message: Runner.RunnerMessage, emit: Emit) =>
         Effect.logInfo(`→ ${message.type}`).pipe(
           Effect.annotateLogs({ turn: key }),
           Effect.andThen(emit(message)),
@@ -110,7 +114,11 @@ export class Executor extends Context.Service<Executor, {
        * its own under the latest steer's key; the other steers are `merged`.
        */
       const runTurn = (
-        turn: { readonly key: string; readonly agentSessionId?: string | undefined; readonly transcript: string },
+        turn: {
+          readonly key: Common.IdempotencyKey
+          readonly agentSessionId?: Common.AgentSessionId | undefined
+          readonly transcript: string
+        },
         emit: Emit
       ): Effect.Effect<void> =>
         Effect.gen(function*() {

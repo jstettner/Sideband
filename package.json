@@ -2,25 +2,25 @@
   "name": "sideband",
   "private": true,
   "type": "module",
-  "packageManager": "bun@1.3.12",
+  "packageManager": "bun@1.3.13",
   "workspaces": {
     "packages": [
       "packages/*"
     ],
     "catalog": {
-      "effect": "4.0.2",
-      "@effect/vitest": "4.0.2",
-      "@effect/platform-bun": "4.0.2",
+      "effect": "4.0.3",
+      "@effect/vitest": "4.0.3",
+      "@effect/platform-bun": "4.0.3",
+      "@effect/platform-node": "4.0.3",
+      "@effect/sql-sqlite-do": "4.0.3",
+      "@effect/sql-sqlite-node": "4.0.3",
+      "alchemy": "2.0.0-beta.81",
       "@types/bun": "1.4.2",
       "@types/node": "26.6.4",
       "@cloudflare/workers-types": "5.20261006.1",
-      "wrangler": "4.148.0",
       "typescript": "7.0.2",
       "vitest": "5.0.3"
     }
-  },
-  "overrides": {
-    "@effect/platform-node-shared": "4.0.2"
   },
   "scripts": {
     "prepare": "effect-tsgo patch --typescript --no-oxlint && bun scripts/install-hooks.ts",
@@ -28,8 +28,11 @@
     "reference:sync": "bun scripts/sync-reference.ts --force",
     "check": "tsc -b",
     "test": "vitest run",
-    "lint": "oxlint && dprint check && bun run openapi:check",
+    "lint": "oxlint && dprint check && bun run openapi:check && bun scripts/check-file-names.ts",
     "format": "dprint fmt",
+    "dev": "bun packages/backend-cloudflare/src/scripts/dev.ts",
+    "deploy": "bun run --cwd packages/backend-cloudflare deploy",
+    "runner:install": "bun run --cwd packages/runner agent:install",
     "openapi": "bun packages/protocol/src/scripts/genOpenapi.ts",
     "openapi:check": "bun packages/protocol/src/scripts/genOpenapi.ts --check"
   },

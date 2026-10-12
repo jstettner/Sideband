@@ -1,20 +1,22 @@
 import { describe, expect, it } from "@effect/vitest"
 import { Agent } from "@sideband/agents"
-import type { Runner } from "@sideband/protocol"
+import { Common, Runner } from "@sideband/protocol"
 import { Context, Effect, Exit, Latch, Layer, Queue, Scope } from "effect"
 import { type Emit, Executor } from "../src/Executor/Executor.ts"
 
-const KEY = "turn-0000000000000001"
+const KEY = Common.IdempotencyKey.make("turn-0000000000000001")
 
-const STEER = "turn-0000000000000002"
+const STEER = Common.IdempotencyKey.make("turn-0000000000000002")
 
-const turn: Runner.Turn = { type: "turn", key: KEY, session: "main", transcript: "Deploy it." }
+const MAIN = Common.SessionName.make("main")
 
-const steer: Runner.Steer = { type: "steer", key: STEER, into: KEY, session: "main", transcript: "to staging" }
+const turn: Runner.Turn = { type: "turn", key: KEY, session: MAIN, transcript: "Deploy it." }
+
+const steer: Runner.Steer = { type: "steer", key: STEER, into: KEY, session: MAIN, transcript: "to staging" }
 
 const { Completed } = Agent.TurnOutcome.cases
 
-const completed = Completed.make({ agentSessionId: "session-1", watchText: "Deployed." })
+const completed = Completed.make({ agentSessionId: Common.AgentSessionId.make("session-1"), watchText: "Deployed." })
 
 type Agent = Agent.Agent["Service"]
 
@@ -34,7 +36,7 @@ const scripted = (gate: Latch.Latch, overrides: Partial<Agent> = {}) => {
       return yield* Effect.succeed("Steered" as const)
     }),
     sessionOp: Effect.fnUntraced(function*() {
-      return yield* Effect.succeed({ agentSessionId: "session-2" })
+      return yield* Effect.succeed({ agentSessionId: Common.AgentSessionId.make("session-2") })
     }),
     ...overrides
   }
@@ -203,7 +205,10 @@ describe("Executor", () => {
       const { emit, next } = yield* recorder
       const executor = yield* start(layer)
 
-      yield* executor.sessionOp({ type: "session_op", op_id: "op-1", op: "compact", session: "main" }, emit)
+      yield* executor.sessionOp(
+        { type: "session_op", op_id: Runner.OpId.make("op-1"), op: "compact", session: MAIN },
+        emit
+      )
       expect(yield* next).toEqual({
         type: "session_op_failed",
         op_id: "op-1",

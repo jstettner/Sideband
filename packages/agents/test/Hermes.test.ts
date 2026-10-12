@@ -1,4 +1,5 @@
 import { describe, expect, it } from "@effect/vitest"
+import { Common } from "@sideband/protocol"
 import { Effect, Fiber } from "effect"
 import { TestClock } from "effect/testing"
 import { Agent } from "../src/index.ts"
@@ -6,14 +7,17 @@ import { agentContract, type HermesScript, layerHermes, makeHermesApi } from "..
 
 agentContract("Hermes", layerHermes(makeHermesApi()))
 
-const KEY = "hermes-test-turn-0001"
+const KEY = Common.IdempotencyKey.make("hermes-test-turn-0001")
+
+/** The session Hermes names after the first run. */
+const RUN_SESSION = Common.AgentSessionId.make("run-1")
 
 const turn = { key: KEY, transcript: "Did the deploy finish?" }
 
 const { Completed, NeedsApproval, Failed } = Agent.TurnOutcome.cases
 
 /** What the fake Hermes answers by default: the run's input, in the session the run named. */
-const echoed = Completed.make({ agentSessionId: "run-1", watchText: turn.transcript })
+const echoed = Completed.make({ agentSessionId: RUN_SESSION, watchText: turn.transcript })
 
 /** Runs `turn` against a fake Hermes following `script`, advancing the clock until it settles. */
 const runTurn = (script: HermesScript) => {
@@ -77,7 +81,7 @@ describe("Hermes", () => {
         })
       })
 
-      expect(outcome).toEqual(NeedsApproval.make({ agentSessionId: "run-1", message: "Run `rm -rf build`?" }))
+      expect(outcome).toEqual(NeedsApproval.make({ agentSessionId: RUN_SESSION, message: "Run `rm -rf build`?" }))
     }))
 
   it.effect("failed runs fail; interrupted and cancelled runs were interrupted", () =>
@@ -97,7 +101,7 @@ describe("Hermes", () => {
 
   it.effect("compacting isn't supported", () =>
     Effect.gen(function*() {
-      const error = yield* Agent.Agent.use((agent) => agent.sessionOp("compact", "run-1")).pipe(Effect.flip)
+      const error = yield* Agent.Agent.use((agent) => agent.sessionOp("compact", RUN_SESSION)).pipe(Effect.flip)
 
       expect(error._tag).toBe("NotSupported")
     }).pipe(Effect.provide(layerHermes(makeHermesApi()))))

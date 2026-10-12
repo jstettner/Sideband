@@ -1,71 +1,112 @@
-/* oxlint-disable -- Goes away once Durable Object RPC carries typed errors. */
-import { Errors, Status, Turn } from "@sideband/protocol"
+import { type Common, Errors, Status, Turn } from "@sideband/protocol"
+import * as Cloudflare from "alchemy/Cloudflare"
 import { Context, Effect, Layer, Schema } from "effect"
-import type { Relay, Reply, SubmitTurn } from "./Relay.ts"
+import type * as Lifecycle from "./Lifecycle.ts"
+import type { RelayDO } from "./RelayDO.ts"
 
-/** Protocol errors the relay can refuse a request with, by code. */
-const refusals = {
-  agent_offline: (message: string) => new Errors.AgentOffline({ error: "agent_offline", message, retryable: true }),
-  session_busy: (message: string) => new Errors.SessionBusy({ error: "session_busy", message, retryable: true }),
-  idempotency_conflict: (message: string) =>
-    new Errors.IdempotencyConflict({ error: "idempotency_conflict", message, retryable: false }),
-  not_found: (message: string) => new Errors.NotFound({ error: "not_found", message, retryable: false }),
-  not_supported: (message: string) => new Errors.NotSupported({ error: "not_supported", message, retryable: false }),
-  internal_error: (message: string) => new Errors.InternalError({ error: "internal_error", message, retryable: true })
-}
-type Refusals = typeof refusals
+/** Single user: every principal shares this relay. */
+export const OWNER = "owner"
 
-/** The relay Durable Object, as seen from the Worker. */
+/** The relay as the watch API sees it: decoded answers, and the protocol's errors. */
 export class RelayClient extends Context.Service<RelayClient, {
   /** Claims the key, relays the turn and waits up to ~25 s for its outcome (else `running`). */
-  readonly submit: (turn: SubmitTurn) => Effect.Effect<
+  readonly submit: (turn: Lifecycle.SubmitTurn) => Effect.Effect<
     Turn.TurnState,
     Errors.AgentOffline | Errors.SessionBusy | Errors.IdempotencyConflict | Errors.InternalError
   >
-  readonly get: (key: string) => Effect.Effect<Turn.TurnState, Errors.NotFound | Errors.InternalError>
-  readonly status: (session: string) => Effect.Effect<Status.Status, Errors.InternalError>
-  readonly sessionOp: (session: string, op: "new" | "compact") => Effect.Effect<
+  readonly get: (key: Common.IdempotencyKey) => Effect.Effect<Turn.TurnState, Errors.NotFound | Errors.InternalError>
+  readonly status: (session: Common.SessionName) => Effect.Effect<Status.Status, Errors.InternalError>
+  readonly sessionOp: (session: Common.SessionName, op: "new" | "compact") => Effect.Effect<
     Status.SessionState,
     Errors.AgentOffline | Errors.SessionBusy | Errors.NotSupported | Errors.InternalError
   >
-}>()("@sideband/backend-cloudflare/RelayClient") {
-  /** Single-user MVP: every principal shares the `owner` relay. */
-  static readonly layer = (namespace: DurableObjectNamespace<Relay>) => {
-    /** Calls the relay over RPC; a failed call (e.g. the object was reset) is an internal error. */
-    const call = <A>(f: (relay: DurableObjectStub<Relay>) => Promise<A>) =>
-      Effect.tryPromise({
-        try: () => f(namespace.getByName("owner")),
-        catch: (cause) => refusals.internal_error(`relay call failed: ${String(cause)}`)
-      }).pipe(Effect.tapError((e) => Effect.logWarning(e.message)))
+}>()("@sideband/backend-cloudflare/RelayClient") {}
 
-    return Layer.succeed(RelayClient)({
-      submit: Effect.fn("RelayClient.submit")((turn) =>
-        call((relay) => relay.submit(turn)).pipe(Effect.flatMap(accept(Turn.TurnState)))
-      ),
-      get: Effect.fn("RelayClient.get")((key) =>
-        call((relay) => relay.get(key)).pipe(Effect.flatMap(accept(Turn.TurnState)))
-      ),
-      status: Effect.fn("RelayClient.status")((session) =>
-        call((relay) => relay.status(session)).pipe(Effect.flatMap(decode(Status.Status)))
-      ),
-      sessionOp: Effect.fn("RelayClient.sessionOp")((session, op) =>
-        call((relay) => relay.sessionOp(session, op)).pipe(Effect.flatMap(accept(Status.SessionState)))
-      )
-    })
-  }
+const internal = (message: string) => new Errors.InternalError({ error: "internal_error", message, retryable: true })
+
+/** The relay's refusals, as the protocol's errors with the same message. */
+const refusals = {
+  AgentOffline: (e: Lifecycle.AgentOffline) =>
+    Effect.fail(new Errors.AgentOffline({ error: "agent_offline", message: e.message, retryable: true })),
+  SessionBusy: (e: Lifecycle.SessionBusy) =>
+    Effect.fail(new Errors.SessionBusy({ error: "session_busy", message: e.message, retryable: true })),
+  IdempotencyConflict: (e: Lifecycle.IdempotencyConflict) =>
+    Effect.fail(
+      new Errors.IdempotencyConflict({ error: "idempotency_conflict", message: e.message, retryable: false })
+    ),
+  TurnNotFound: (e: Lifecycle.TurnNotFound) =>
+    Effect.fail(new Errors.NotFound({ error: "not_found", message: e.message, retryable: false })),
+  OpNotSupported: (e: Lifecycle.OpNotSupported) =>
+    Effect.fail(new Errors.NotSupported({ error: "not_supported", message: e.message, retryable: false })),
+  OpFailed: (e: Lifecycle.OpFailed) => Effect.fail(internal(e.message)),
+  StorageFailed: (e: Lifecycle.StorageFailed) => Effect.fail(internal(`relay storage failed: ${e.message}`))
+}
+
+/**
+ * An RPC call to the relay, which can also fail with `RpcCallError` (the object reset, or the call didn't
+ * reach it). The stub's types leave that out; it is an internal error.
+ */
+const call = <A, E, R>(effect: Effect.Effect<A, E, R>): Effect.Effect<A, E | Errors.InternalError, R> => {
+  const rpc: Effect.Effect<A, E | Cloudflare.RpcCallError, R> = effect
+
+  return rpc.pipe(
+    Effect.catchIf(
+      (error): error is Cloudflare.RpcCallError => error instanceof Cloudflare.RpcCallError,
+      (error) =>
+        Effect.logWarning("relay call failed", error).pipe(Effect.andThen(Effect.fail(internal(error.message))))
+    )
+  )
 }
 
 /** The relay answers in wire format; a value that doesn't decode is our bug, reported as internal. */
-const decode = <S extends Schema.Codec<any, any>>(schema: S) => (value: S["Encoded"]) =>
+const decode = <S extends Schema.Codec<unknown, unknown>>(schema: S) => (value: S["Encoded"]) =>
   Schema.decodeUnknownEffect(schema)(value).pipe(
-    Effect.mapError((issue) => refusals.internal_error(`bad relay reply: ${issue.message}`))
-  ) as Effect.Effect<S["Type"], Errors.InternalError>
+    Effect.mapError((issue) => internal(`bad relay reply: ${issue.message}`))
+  )
 
-/** Decodes the value of a successful reply, or fails with the protocol error it was refused with. */
-const accept = <S extends Schema.Codec<any, any>>(schema: S) =>
-<E extends keyof Refusals>(
-  reply: Reply<S["Encoded"], E>
-): Effect.Effect<S["Type"], ReturnType<Refusals[E]> | Errors.InternalError> =>
-  reply.refused
-    ? Effect.fail(refusals[reply.refused.error](reply.refused.message) as ReturnType<Refusals[E]>)
-    : decode(schema)(reply.value)
+/** The relay named {@link OWNER} in `relays`. */
+export const layer = (relays: Cloudflare.DurableObject<RelayDO>) => {
+  const relay = () => relays.getByName(OWNER)
+
+  return Layer.succeed(RelayClient)({
+    submit: Effect.fn("RelayClient.submit")(function*(turn) {
+      const state = yield* call(relay().submit(turn)).pipe(
+        Effect.catchTags({
+          AgentOffline: refusals.AgentOffline,
+          SessionBusy: refusals.SessionBusy,
+          IdempotencyConflict: refusals.IdempotencyConflict,
+          StorageFailed: refusals.StorageFailed
+        })
+      )
+
+      return yield* decode(Turn.TurnState)(state)
+    }),
+    get: Effect.fn("RelayClient.get")(function*(key) {
+      const state = yield* call(relay().get(key)).pipe(
+        Effect.catchTags({ TurnNotFound: refusals.TurnNotFound, StorageFailed: refusals.StorageFailed })
+      )
+
+      return yield* decode(Turn.TurnState)(state)
+    }),
+    status: Effect.fn("RelayClient.status")(function*(session) {
+      const status = yield* call(relay().status(session)).pipe(
+        Effect.catchTags({ StorageFailed: refusals.StorageFailed })
+      )
+
+      return yield* decode(Status.Status)(status)
+    }),
+    sessionOp: Effect.fn("RelayClient.sessionOp")(function*(session, op) {
+      const state = yield* call(relay().sessionOp(session, op)).pipe(
+        Effect.catchTags({
+          AgentOffline: refusals.AgentOffline,
+          SessionBusy: refusals.SessionBusy,
+          OpNotSupported: refusals.OpNotSupported,
+          OpFailed: refusals.OpFailed,
+          StorageFailed: refusals.StorageFailed
+        })
+      )
+
+      return yield* decode(Status.SessionState)(state)
+    })
+  })
+}

@@ -1,5 +1,5 @@
 import { Schema } from "effect"
-import { AgentInfo, ContextUsage, IdempotencyKey, SessionName } from "../Common/Common.ts"
+import { AgentInfo, AgentSessionId, ContextUsage, IdempotencyKey, SessionName } from "../Common/Common.ts"
 
 /**
  * WebSocket messages between a backend's relay and a runner. See protocol/runner.md.
@@ -15,7 +15,10 @@ export const HEARTBEAT_PING = "ping"
 
 export const HEARTBEAT_PONG = "pong"
 
-const OpId = Schema.String.check(Schema.isPattern(/^[A-Za-z0-9_-]{1,128}$/u))
+/** Identifies one session operation between the relay's request and the runner's answer. */
+export const OpId = Schema.String.check(Schema.isPattern(/^[A-Za-z0-9_-]{1,128}$/u)).pipe(Schema.brand("OpId"))
+
+export type OpId = typeof OpId.Type
 
 // runner → relay
 
@@ -43,7 +46,7 @@ export const TurnResult = Schema.Struct({
   type: Schema.tag("result"),
   key: IdempotencyKey,
   /** Agent session the turn ran in; may differ from the one sent (e.g. after compaction). */
-  agent_session_id: Schema.String,
+  agent_session_id: AgentSessionId,
   watch_text: Schema.String,
   speak_text: Schema.optionalKey(Schema.String),
   full_text: Schema.optionalKey(Schema.String),
@@ -55,7 +58,7 @@ export type TurnResult = typeof TurnResult.Type
 export const TurnNeedsApproval = Schema.Struct({
   type: Schema.tag("needs_approval"),
   key: IdempotencyKey,
-  agent_session_id: Schema.String,
+  agent_session_id: AgentSessionId,
   message: Schema.String
 }).annotate({ identifier: "RunnerTurnNeedsApproval" })
 
@@ -85,7 +88,7 @@ export type TurnMerged = typeof TurnMerged.Type
 export const SessionOpResult = Schema.Struct({
   type: Schema.tag("session_op_result"),
   op_id: OpId,
-  agent_session_id: Schema.String,
+  agent_session_id: AgentSessionId,
   context: Schema.optionalKey(ContextUsage)
 }).annotate({ identifier: "SessionOpResult" })
 
@@ -121,7 +124,7 @@ export const Turn = Schema.Struct({
   key: IdempotencyKey,
   session: SessionName,
   /** Agent session to continue. Absent for a session's first turn. */
-  agent_session_id: Schema.optionalKey(Schema.String),
+  agent_session_id: Schema.optionalKey(AgentSessionId),
   transcript: Schema.String
 }).annotate({ identifier: "RunnerTurn" })
 
@@ -138,7 +141,7 @@ export const Steer = Schema.Struct({
   into: IdempotencyKey,
   session: SessionName,
   /** Agent session of `into`, for running the steer as its own turn. */
-  agent_session_id: Schema.optionalKey(Schema.String),
+  agent_session_id: Schema.optionalKey(AgentSessionId),
   transcript: Schema.String
 }).annotate({ identifier: "Steer" })
 
@@ -149,7 +152,7 @@ export const SessionOp = Schema.Struct({
   op_id: OpId,
   op: Schema.Literals(["new", "compact"]),
   session: SessionName,
-  agent_session_id: Schema.optionalKey(Schema.String)
+  agent_session_id: Schema.optionalKey(AgentSessionId)
 }).annotate({ identifier: "SessionOp" })
 
 export type SessionOp = typeof SessionOp.Type
