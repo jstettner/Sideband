@@ -2,7 +2,7 @@
   "$schema": "https://json.schemastore.org/tsconfig",
   "extends": "../../tsconfig.base.json",
   "include": ["src", "test"],
-  "references": [{ "path": "../protocol" }],
+  "references": [{ "path": "../protocol" }, { "path": "../agents" }],
   "compilerOptions": {
     "types": ["bun"],
     // Nothing imports the runner, so it is type-checked without emitting declarations.

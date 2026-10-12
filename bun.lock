@@ -17,6 +17,21 @@
         "vitest": "catalog:",
       },
     },
+    "packages/agents": {
+      "name": "@sideband/agents",
+      "version": "0.0.0",
+      "dependencies": {
+        "@sideband/protocol": "workspace:*",
+      },
+      "devDependencies": {
+        "@effect/vitest": "catalog:",
+        "effect": "catalog:",
+        "vitest": "catalog:",
+      },
+      "peerDependencies": {
+        "effect": "catalog:",
+      },
+    },
     "packages/backend-cloudflare": {
       "name": "@sideband/backend-cloudflare",
       "version": "0.0.0",
@@ -50,6 +65,7 @@
       "version": "0.0.0",
       "dependencies": {
         "@effect/platform-bun": "catalog:",
+        "@sideband/agents": "workspace:*",
         "@sideband/protocol": "workspace:*",
         "effect": "catalog:",
       },
@@ -348,6 +364,8 @@
     "@rolldown/binding-win32-x64-msvc": ["@rolldown/binding-win32-x64-msvc@1.2.13", "", { "os": "win32", "cpu": "x64" }, "sha512-UKhFaZTeTcbKrb3iU82m17jVcPEAoqDkCN5MBqgPyZSwp/cQmib21crTS0DdH7T1B7wZRWEI89YQAOJMet5yhg=="],
 
     "@rolldown/pluginutils": ["@rolldown/pluginutils@1.0.1", "", {}, "sha512-2j9bGt5Jh8hj+vPtgzPtl72j0yRxHAyumoo6TNfAjsLB04UtpSvPbPcDcBMxz7n+9CYB0c1GxQFxYRg2jimqGw=="],
+
+    "@sideband/agents": ["@sideband/agents@workspace:packages/agents"],
 
     "@sideband/backend-cloudflare": ["@sideband/backend-cloudflare@workspace:packages/backend-cloudflare"],
 

@@ -1,8 +1,8 @@
 /* oxlint-disable -- Replaced by a connection on effect/socket. */
+import { Agent } from "@sideband/agents"
 import { Runner } from "@sideband/protocol"
 import { Data, Effect, Exit, Queue, Redacted, Schedule, Schema } from "effect"
 import pkg from "../../package.json" with { type: "json" }
-import { Agent } from "../agent/Agent.ts"
 import { RunnerConfig } from "../config.ts"
 import { type Emit, Executor } from "../Turns/Executor.ts"
 
@@ -38,7 +38,7 @@ const decodeMessage = Schema.decodeUnknownExit(Schema.fromJsonString(Runner.Rela
 export const run = Effect.gen(function*() {
   const config = yield* RunnerConfig
   const executor = yield* Executor
-  const agent = yield* Agent
+  const agent = yield* Agent.Agent
   const url = connectUrl(config.backendUrl)
 
   let protocol: Runner.Hello["protocol"] = Runner.RUNNER_PROTOCOL_VERSION

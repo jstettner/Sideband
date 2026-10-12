@@ -4,17 +4,5 @@ import { Config } from "effect"
 export const RunnerConfig = Config.all({
   /** Backend base URL, `https://` or `wss://`; the runner connects to `/v1/runner/connect`. */
   backendUrl: Config.URL("SIDEBAND_BACKEND_URL"),
-  runnerToken: Config.Redacted("SIDEBAND_RUNNER_TOKEN"),
-  agent: Config.Literals(["echo", "hermes"], "SIDEBAND_AGENT").pipe(Config.withDefault("echo" as const))
-})
-
-/** Hermes API server (`API_SERVER_*` in `~/.hermes/.env`). Only read when `SIDEBAND_AGENT=hermes`. */
-export const HermesConfig = Config.all({
-  apiUrl: Config.URL("HERMES_API_URL"),
-  apiKey: Config.Redacted("HERMES_API_KEY")
-})
-
-/** Echo agent. `delayMs` > 0 makes turns take that long, so steering can be tried locally. */
-export const EchoConfig = Config.all({
-  delayMs: Config.Int("SIDEBAND_ECHO_DELAY_MS").pipe(Config.withDefault(0))
+  runnerToken: Config.Redacted("SIDEBAND_RUNNER_TOKEN")
 })

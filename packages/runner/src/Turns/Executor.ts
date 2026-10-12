@@ -1,6 +1,6 @@
+import { Agent } from "@sideband/agents"
 import type { Runner } from "@sideband/protocol"
 import { Context, Deferred, Effect, FiberSet, Layer, Match, type Types } from "effect"
-import { Agent } from "../agent/Agent.ts"
 
 /** Sends a message to the relay (or holds it until the next connection). */
 export type Emit = (message: Runner.RunnerMessage) => Effect.Effect<void>
@@ -39,7 +39,7 @@ export class Executor extends Context.Service<Executor, {
   static readonly layer = Layer.effect(
     Executor,
     Effect.gen(function*() {
-      const agent = yield* Agent
+      const agent = yield* Agent.Agent
       const fibers = yield* FiberSet.make()
       const inFlight = new Set<string>()
       /** Steers into each turn whose run is in progress here, in arrival order, by turn key. */

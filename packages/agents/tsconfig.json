@@ -1,0 +1,11 @@
+{
+  "$schema": "https://json.schemastore.org/tsconfig",
+  "extends": "../../tsconfig.base.json",
+  "include": ["src", "test"],
+  "references": [{ "path": "../protocol" }],
+  "compilerOptions": {
+    // `types` stays [] (from the base): agents are platform-free, so a Node, Bun, or Workers import fails to
+    // type-check. DOM adds only the web-standard globals every host has (`crypto.randomUUID`, `TextEncoder`).
+    "lib": ["ES2023", "DOM"]
+  }
+}

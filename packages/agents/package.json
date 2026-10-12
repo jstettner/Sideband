@@ -1,0 +1,27 @@
+{
+  "name": "@sideband/agents",
+  "version": "0.0.0",
+  "private": true,
+  "type": "module",
+  "description": "Agents a runner can drive: the Agent service, each adapter (Echo, Hermes), and the contract every adapter passes, platform-free.",
+  "sideEffects": false,
+  "exports": {
+    "./package.json": "./package.json",
+    ".": "./src/index.ts",
+    "./testing": "./src/testing/index.ts",
+    "./*": "./src/*.ts",
+    "./internal/*": null,
+    "./index": null
+  },
+  "dependencies": {
+    "@sideband/protocol": "workspace:*"
+  },
+  "peerDependencies": {
+    "effect": "catalog:"
+  },
+  "devDependencies": {
+    "@effect/vitest": "catalog:",
+    "effect": "catalog:",
+    "vitest": "catalog:"
+  }
+}
