@@ -3,8 +3,14 @@
   "version": "0.0.0",
   "private": true,
   "type": "module",
+  "description": "The Sideband wire contract: the watch-facing HTTP API and the relay-runner WebSocket messages, as Effect schemas.",
+  "sideEffects": false,
   "exports": {
-    ".": "./src/index.ts"
+    "./package.json": "./package.json",
+    ".": "./src/index.ts",
+    "./*": "./src/*.ts",
+    "./internal/*": null,
+    "./index": null
   },
   "peerDependencies": {
     "effect": "catalog:"

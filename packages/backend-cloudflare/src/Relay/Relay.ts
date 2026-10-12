@@ -1,9 +1,8 @@
 /* oxlint-disable -- Replaced by an Effect Durable Object whose decisions are pure functions. */
-import type { AgentInfo, SessionState, Status, TurnState } from "@sideband/protocol"
-import { Runner } from "@sideband/protocol"
+import { type Common, Runner, type Status, type Turn } from "@sideband/protocol"
 import { DurableObject } from "cloudflare:workers"
 import { Exit, Schema } from "effect"
-import { isResolved, type Outcome, Store, type TurnRow } from "./store.ts"
+import { isResolved, type Outcome, Store, type TurnRow } from "./Store.ts"
 
 /** How long `submit` holds the request open before answering `running`. */
 const HOLD_MS = 25_000
@@ -31,7 +30,7 @@ interface Attachment {
   readonly connectedAt: number
   readonly hello?: {
     readonly runner_version: string
-    readonly agent: AgentInfo
+    readonly agent: Common.AgentInfo
     /** Absent in attachments saved before protocol 2: those runners speak 1. */
     readonly protocol?: Runner.Hello["protocol"]
   }
@@ -66,7 +65,7 @@ const decodeMessage = Schema.decodeUnknownExit(Schema.fromJsonString(Runner.Runn
 /**
  * Rendezvous between clients and the runner (one instance per user). Clients call the RPC
  * methods through the Worker; the runner holds a hibernatable WebSocket. Only open requests
- * are kept in memory; everything else is in SQLite (see store.ts).
+ * are kept in memory; everything else is in SQLite (see Store.ts).
  */
 export class Relay extends DurableObject<Cloudflare.Env> {
   private readonly store: Store
@@ -88,7 +87,7 @@ export class Relay extends DurableObject<Cloudflare.Env> {
   // RPC
 
   async submit(turn: SubmitTurn): Promise<
-    Reply<typeof TurnState.Encoded, "agent_offline" | "session_busy" | "idempotency_conflict">
+    Reply<typeof Turn.TurnState.Encoded, "agent_offline" | "session_busy" | "idempotency_conflict">
   > {
     const runner = this.liveRunner()
     const existing = this.store.turn(turn.key)
@@ -116,13 +115,13 @@ export class Relay extends DurableObject<Cloudflare.Env> {
     return ok(this.turnState(this.store.turn(turn.key)!))
   }
 
-  async get(key: string): Promise<Reply<typeof TurnState.Encoded, "not_found">> {
+  async get(key: string): Promise<Reply<typeof Turn.TurnState.Encoded, "not_found">> {
     this.liveRunner()
     const row = this.store.turn(key)
     return row ? ok(this.turnState(row)) : refuse("not_found", `No turn ${key}.`)
   }
 
-  async status(session: string): Promise<typeof Status.Encoded> {
+  async status(session: string): Promise<typeof Status.Status.Encoded> {
     const live = this.liveRunner()
     const agentName = this.store.agentName()
     return {
@@ -132,7 +131,7 @@ export class Relay extends DurableObject<Cloudflare.Env> {
   }
 
   async sessionOp(session: string, op: "new" | "compact"): Promise<
-    Reply<typeof SessionState.Encoded, "agent_offline" | "session_busy" | "not_supported" | "internal_error">
+    Reply<typeof Status.SessionState.Encoded, "agent_offline" | "session_busy" | "not_supported" | "internal_error">
   > {
     const runner = this.liveRunner()
     if (!runner) return refuse("agent_offline", "The agent is offline. Nothing was run.")
@@ -357,7 +356,7 @@ export class Relay extends DurableObject<Cloudflare.Env> {
     return undefined
   }
 
-  private turnState(row: TurnRow): typeof TurnState.Encoded {
+  private turnState(row: TurnRow): typeof Turn.TurnState.Encoded {
     const base = { idempotency_key: row.key, session: row.session, transcript: row.transcript }
     if (row.state === "unknown") return { status: "unknown", ...base, message: UNKNOWN_MESSAGE }
     if (row.state !== "done") return { status: "running", ...base, retry_after_ms: RETRY_AFTER_MS }
@@ -382,7 +381,7 @@ export class Relay extends DurableObject<Cloudflare.Env> {
     }
   }
 
-  private sessionState(name: string): typeof SessionState.Encoded {
+  private sessionState(name: string): typeof Status.SessionState.Encoded {
     const row = this.store.session(name)
     return {
       name,

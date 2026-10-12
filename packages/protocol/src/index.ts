@@ -1,11 +1,11 @@
-export * from "./Api.ts"
+export * as Api from "./Api/Api.ts"
 
-export * from "./common.ts"
+export * as Common from "./Common/Common.ts"
 
-export * from "./errors.ts"
+export * as Errors from "./Errors/Errors.ts"
 
-export * as Runner from "./runner.ts"
+export * as Runner from "./Runner/Runner.ts"
 
-export * from "./status.ts"
+export * as Status from "./Status/Status.ts"
 
-export * from "./turn.ts"
+export * as Turn from "./Turn/Turn.ts"

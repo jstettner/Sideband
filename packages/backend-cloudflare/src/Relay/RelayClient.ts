@@ -1,27 +1,17 @@
 /* oxlint-disable -- Goes away once Durable Object RPC carries typed errors. */
-import {
-  AgentOffline,
-  IdempotencyConflict,
-  InternalError,
-  NotFound,
-  NotSupported,
-  SessionBusy,
-  SessionState,
-  Status,
-  TurnState
-} from "@sideband/protocol"
+import { Errors, Status, Turn } from "@sideband/protocol"
 import { Context, Effect, Layer, Schema } from "effect"
 import type { Relay, Reply, SubmitTurn } from "./Relay.ts"
 
 /** Protocol errors the relay can refuse a request with, by code. */
 const refusals = {
-  agent_offline: (message: string) => new AgentOffline({ error: "agent_offline", message, retryable: true }),
-  session_busy: (message: string) => new SessionBusy({ error: "session_busy", message, retryable: true }),
+  agent_offline: (message: string) => new Errors.AgentOffline({ error: "agent_offline", message, retryable: true }),
+  session_busy: (message: string) => new Errors.SessionBusy({ error: "session_busy", message, retryable: true }),
   idempotency_conflict: (message: string) =>
-    new IdempotencyConflict({ error: "idempotency_conflict", message, retryable: false }),
-  not_found: (message: string) => new NotFound({ error: "not_found", message, retryable: false }),
-  not_supported: (message: string) => new NotSupported({ error: "not_supported", message, retryable: false }),
-  internal_error: (message: string) => new InternalError({ error: "internal_error", message, retryable: true })
+    new Errors.IdempotencyConflict({ error: "idempotency_conflict", message, retryable: false }),
+  not_found: (message: string) => new Errors.NotFound({ error: "not_found", message, retryable: false }),
+  not_supported: (message: string) => new Errors.NotSupported({ error: "not_supported", message, retryable: false }),
+  internal_error: (message: string) => new Errors.InternalError({ error: "internal_error", message, retryable: true })
 }
 type Refusals = typeof refusals
 
@@ -29,16 +19,16 @@ type Refusals = typeof refusals
 export class RelayClient extends Context.Service<RelayClient, {
   /** Claims the key, relays the turn and waits up to ~25 s for its outcome (else `running`). */
   readonly submit: (turn: SubmitTurn) => Effect.Effect<
-    TurnState,
-    AgentOffline | SessionBusy | IdempotencyConflict | InternalError
+    Turn.TurnState,
+    Errors.AgentOffline | Errors.SessionBusy | Errors.IdempotencyConflict | Errors.InternalError
   >
-  readonly get: (key: string) => Effect.Effect<TurnState, NotFound | InternalError>
-  readonly status: (session: string) => Effect.Effect<Status, InternalError>
+  readonly get: (key: string) => Effect.Effect<Turn.TurnState, Errors.NotFound | Errors.InternalError>
+  readonly status: (session: string) => Effect.Effect<Status.Status, Errors.InternalError>
   readonly sessionOp: (session: string, op: "new" | "compact") => Effect.Effect<
-    SessionState,
-    AgentOffline | SessionBusy | NotSupported | InternalError
+    Status.SessionState,
+    Errors.AgentOffline | Errors.SessionBusy | Errors.NotSupported | Errors.InternalError
   >
-}>()("sideband/backend-cloudflare/relay/RelayClient") {
+}>()("@sideband/backend-cloudflare/RelayClient") {
   /** Single-user MVP: every principal shares the `owner` relay. */
   static readonly layer = (namespace: DurableObjectNamespace<Relay>) => {
     /** Calls the relay over RPC; a failed call (e.g. the object was reset) is an internal error. */
@@ -50,16 +40,16 @@ export class RelayClient extends Context.Service<RelayClient, {
 
     return Layer.succeed(RelayClient)({
       submit: Effect.fn("RelayClient.submit")((turn) =>
-        call((relay) => relay.submit(turn)).pipe(Effect.flatMap(accept(TurnState)))
+        call((relay) => relay.submit(turn)).pipe(Effect.flatMap(accept(Turn.TurnState)))
       ),
       get: Effect.fn("RelayClient.get")((key) =>
-        call((relay) => relay.get(key)).pipe(Effect.flatMap(accept(TurnState)))
+        call((relay) => relay.get(key)).pipe(Effect.flatMap(accept(Turn.TurnState)))
       ),
       status: Effect.fn("RelayClient.status")((session) =>
-        call((relay) => relay.status(session)).pipe(Effect.flatMap(decode(Status)))
+        call((relay) => relay.status(session)).pipe(Effect.flatMap(decode(Status.Status)))
       ),
       sessionOp: Effect.fn("RelayClient.sessionOp")((session, op) =>
-        call((relay) => relay.sessionOp(session, op)).pipe(Effect.flatMap(accept(SessionState)))
+        call((relay) => relay.sessionOp(session, op)).pipe(Effect.flatMap(accept(Status.SessionState)))
       )
     })
   }
@@ -69,13 +59,13 @@ export class RelayClient extends Context.Service<RelayClient, {
 const decode = <S extends Schema.Codec<any, any>>(schema: S) => (value: S["Encoded"]) =>
   Schema.decodeUnknownEffect(schema)(value).pipe(
     Effect.mapError((issue) => refusals.internal_error(`bad relay reply: ${issue.message}`))
-  ) as Effect.Effect<S["Type"], InternalError>
+  ) as Effect.Effect<S["Type"], Errors.InternalError>
 
 /** Decodes the value of a successful reply, or fails with the protocol error it was refused with. */
 const accept = <S extends Schema.Codec<any, any>>(schema: S) =>
 <E extends keyof Refusals>(
   reply: Reply<S["Encoded"], E>
-): Effect.Effect<S["Type"], ReturnType<Refusals[E]> | InternalError> =>
+): Effect.Effect<S["Type"], ReturnType<Refusals[E]> | Errors.InternalError> =>
   reply.refused
     ? Effect.fail(refusals[reply.refused.error](reply.refused.message) as ReturnType<Refusals[E]>)
     : decode(schema)(reply.value)

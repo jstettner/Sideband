@@ -1,40 +1,24 @@
 import { describe, expect, it } from "@effect/vitest"
 import { Effect, Schema } from "effect"
 import { readdirSync, readFileSync } from "node:fs"
-import {
-  AgentOffline,
-  ErrorResponse,
-  IdempotencyConflict,
-  Runner,
-  SessionBusy,
-  SessionState,
-  Status,
-  TextTurnBody,
-  TurnCompleted,
-  TurnFailed,
-  TurnMerged,
-  TurnNeedsApproval,
-  TurnRunning,
-  TurnState,
-  TurnUnknown
-} from "../src/index.ts"
+import { Errors, Runner, Status, Turn } from "../src/index.ts"
 
 const examplesDir = new URL("../examples/", import.meta.url)
 
 /** Every file in examples/ and the schema it must satisfy. */
 const examples = {
-  "http/turn-request-text.json": TextTurnBody,
-  "http/turn-completed.json": TurnCompleted,
-  "http/turn-running.json": TurnRunning,
-  "http/turn-needs-approval.json": TurnNeedsApproval,
-  "http/turn-failed.json": TurnFailed,
-  "http/turn-unknown.json": TurnUnknown,
-  "http/turn-merged.json": TurnMerged,
-  "http/error-agent-offline.json": AgentOffline,
-  "http/error-session-busy.json": SessionBusy,
-  "http/error-idempotency-conflict.json": IdempotencyConflict,
-  "http/status.json": Status,
-  "http/session-state.json": SessionState,
+  "http/turn-request-text.json": Turn.TextTurnBody,
+  "http/turn-completed.json": Turn.TurnCompleted,
+  "http/turn-running.json": Turn.TurnRunning,
+  "http/turn-needs-approval.json": Turn.TurnNeedsApproval,
+  "http/turn-failed.json": Turn.TurnFailed,
+  "http/turn-unknown.json": Turn.TurnUnknown,
+  "http/turn-merged.json": Turn.TurnMerged,
+  "http/error-agent-offline.json": Errors.AgentOffline,
+  "http/error-session-busy.json": Errors.SessionBusy,
+  "http/error-idempotency-conflict.json": Errors.IdempotencyConflict,
+  "http/status.json": Status.Status,
+  "http/session-state.json": Status.SessionState,
   "runner/hello.json": Runner.Hello,
   "runner/turn.json": Runner.Turn,
   "runner/ack.json": Runner.Ack,
@@ -65,20 +49,22 @@ describe("examples", () => {
       }))
   }
 
-  it("turn outcomes decode as TurnState", () => {
+  it("turn outcomes decode as Turn.TurnState", () => {
     const outcomes = Object.keys(examples).filter((name) =>
       name.startsWith("http/turn-") && name !== "http/turn-request-text.json"
     )
 
     for (const name of outcomes) {
-      Schema.decodeUnknownSync(TurnState)(readExample(name))
+      Schema.decodeUnknownSync(Turn.TurnState)(readExample(name))
     }
   })
 
-  it("errors decode as ErrorResponse", () => {
+  it("errors decode as Errors.ErrorResponse", () => {
     for (const name of Object.keys(examples).filter((file) => file.startsWith("http/error-"))) {
       const json = readExample(name)
-      expect(Schema.encodeSync(ErrorResponse)(Schema.decodeUnknownSync(ErrorResponse)(json))).toEqual(json)
+      expect(Schema.encodeSync(Errors.ErrorResponse)(Schema.decodeUnknownSync(Errors.ErrorResponse)(json))).toEqual(
+        json
+      )
     }
   })
 

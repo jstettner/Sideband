@@ -1,6 +1,6 @@
 import { Schema } from "effect"
 import { HttpApiSchema } from "effect/http-api"
-import { ContextUsage, IdempotencyKey, SessionName } from "./common.ts"
+import { ContextUsage, IdempotencyKey, SessionName } from "../Common/Common.ts"
 
 /** Maximum accepted audio upload. ~2 minutes of 16 kHz mono PCM16. */
 export const MAX_AUDIO_BYTES = 4_000_000
@@ -13,6 +13,8 @@ export const MAX_AUDIO_BYTES = 4_000_000
 export const AudioTurnBody = Schema.Uint8Array.pipe(
   HttpApiSchema.asUint8Array({ contentType: "audio/wav" })
 )
+
+export type AudioTurnBody = typeof AudioTurnBody.Type
 
 /** Text turn: the client already transcribed (e.g. on-device speech recognition). */
 export const TextTurnBody = Schema.Struct({

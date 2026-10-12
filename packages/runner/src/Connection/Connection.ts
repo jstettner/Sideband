@@ -4,7 +4,7 @@ import { Data, Effect, Exit, Queue, Redacted, Schedule, Schema } from "effect"
 import pkg from "../../package.json" with { type: "json" }
 import { Agent } from "../agent/Agent.ts"
 import { RunnerConfig } from "../config.ts"
-import { type Emit, Executor } from "../turns/Executor.ts"
+import { type Emit, Executor } from "../Turns/Executor.ts"
 
 const PING_INTERVAL_MS = 15_000
 const PONG_TIMEOUT_MS = 30_000

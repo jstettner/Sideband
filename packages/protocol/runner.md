@@ -5,7 +5,7 @@ outbound WebSocket to the backend's **relay**. The relay pushes turns down it; t
 executes them against the agent and sends outcomes back. The agent's machine never accepts
 inbound connections.
 
-Message schemas: `src/runner.ts`. Examples: `examples/runner/`.
+Message schemas: `src/Runner/Runner.ts`. Examples: `examples/runner/`.
 
 ## Connecting
 
