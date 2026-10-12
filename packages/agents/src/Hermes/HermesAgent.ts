@@ -67,7 +67,7 @@ export const layer: Layer.Layer<Agent, never, HermesClient> = Layer.effect(
           sessionId: agentSessionId
         }).pipe(unavailable)
 
-        yield* Effect.logInfo(`turn ${key}: hermes run ${runId}${replayed ? " (replayed)" : ""}`)
+        yield* Effect.logInfo(`hermes run ${runId}${replayed ? " (replayed)" : ""}`)
         runs.set(key, runId)
         const run = yield* waitForRun(runId, replayed).pipe(Effect.ensuring(Effect.sync(() => runs.delete(key))))
 
