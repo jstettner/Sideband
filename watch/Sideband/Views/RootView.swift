@@ -1,10 +1,36 @@
 import SwiftUI
 
-/// Top bar, main pane, bottom bar. The main pane is the tap target; the bars
-/// only ever do their own thing.
+/// History to the left of the main screen: horizontal pages, so vertical
+/// scrolling (the Crown) stays with answers and the history list.
 struct RootView: View {
+    enum Page { case history, main }
+
     @Environment(TurnController.self) private var turn
     @Environment(LaunchRouter.self) private var router
+    @State private var page = Page.main
+
+    var body: some View {
+        TabView(selection: $page) {
+            HistoryView().tag(Page.history)
+            MainScreen().tag(Page.main)
+        }
+        .tabViewStyle(.page)
+        .font(Theme.mono())
+        .foregroundStyle(Theme.foreground)
+        .background(Theme.background.ignoresSafeArea())
+        .onChange(of: router.recordRequested, initial: true) {
+            if router.consumeRecordRequest() {
+                page = .main
+                Task { await turn.start() }
+            }
+        }
+    }
+}
+
+/// Top bar, main pane, bottom bar. The main pane is the tap target; the bars
+/// only ever do their own thing.
+private struct MainScreen: View {
+    @Environment(TurnController.self) private var turn
 
     var body: some View {
         VStack(alignment: .leading, spacing: 4) {
@@ -13,15 +39,7 @@ struct RootView: View {
                 .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .topLeading)
             bottomBar
         }
-        .font(Theme.mono())
-        .foregroundStyle(Theme.foreground)
         .padding(.horizontal, 6)
-        .background(Theme.background.ignoresSafeArea())
-        .onChange(of: router.recordRequested, initial: true) {
-            if router.consumeRecordRequest() {
-                Task { await turn.start() }
-            }
-        }
     }
 
     private var topBar: some View {

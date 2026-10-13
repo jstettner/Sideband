@@ -34,6 +34,8 @@ final class TurnController {
     private(set) var elapsed: TimeInterval = 0
     private(set) var levels: [Float] = Array(repeating: 0, count: meterWidth)
 
+    let history: History
+
     private let recorder = Recorder()
     private let client = SidebandClient.fromBundle()
     private var meterTask: Task<Void, Never>?
@@ -55,6 +57,10 @@ final class TurnController {
     /// Key of the turn whose answer is on screen, and the steers merged into each turn.
     private var shownKey: String?
     private var merged: [String: [String]] = [:]
+
+    init(history: History) {
+        self.history = history
+    }
 
     /// A tap starts recording (a steer while a turn is out).
     var canStart: Bool {
@@ -160,6 +166,7 @@ final class TurnController {
         phase = .resetting
         do {
             _ = try await client.newSession()
+            history.startChat()
             phase = .idle
             note = "new chat"
             WKInterfaceDevice.current().play(.success)
@@ -220,6 +227,7 @@ final class TurnController {
                 // The turn it went into answers it: list it under that answer.
                 guard let into = turn.into, let transcript = turn.transcript, !transcript.isEmpty else { return }
                 merged[into, default: []].append(transcript)
+                history.addTranscript(transcript, to: into)
                 if shownKey == into, case .response(let transcripts, let text) = current {
                     present(.response(transcripts: transcripts + [transcript], text: text), haptic: nil)
                 }
@@ -236,12 +244,15 @@ final class TurnController {
         }
     }
 
+    /// Records every answer; shows it only if no newer one is showing.
     private func showAnswer(_ turn: SidebandClient.Turn, key: String, seq: Int) {
+        let transcripts = [turn.transcript].compactMap { $0 }.filter { !$0.isEmpty } + (merged[key] ?? [])
+        let text = turn.watch_text ?? ""
+        history.record(key: key, transcripts: transcripts, answer: text)
         guard seq >= shownSeq else { return }
         shownSeq = seq
         shownKey = key
-        let transcripts = [turn.transcript].compactMap { $0 }.filter { !$0.isEmpty } + (merged[key] ?? [])
-        present(.response(transcripts: transcripts, text: turn.watch_text ?? ""), haptic: .success)
+        present(.response(transcripts: transcripts, text: text), haptic: .success)
     }
 
     private func steerLost(_ message: String) {

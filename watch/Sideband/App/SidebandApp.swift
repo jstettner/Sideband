@@ -2,7 +2,7 @@ import SwiftUI
 
 @main
 struct SidebandApp: App {
-    @State private var turn = TurnController()
+    @State private var turn = TurnController(history: History())
 
     var body: some Scene {
         WindowGroup {
