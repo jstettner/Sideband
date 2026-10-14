@@ -9,6 +9,13 @@ a small native watchOS app, a backend that transcribes the audio and relays the 
 and a runner that sits next to your agent. Hermes is the first agent and Aqua the
 first transcription provider. Neither is built into the watch app.
 
+<p align="center">
+  <img src="docs/screenshots/ask.png" width="180" alt="Idle screen: tap to ask">
+  <img src="docs/screenshots/listening.png" width="180" alt="Recording, with the level meter">
+  <img src="docs/screenshots/chat.png" width="180" alt="An answer, under the questions that led to it">
+  <img src="docs/screenshots/history.png" width="180" alt="Past chats">
+</p>
+
 ```text
 watch ──POST /v1/turn──▶ backend ──▶ transcription provider
                             │
