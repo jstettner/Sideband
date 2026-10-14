@@ -46,6 +46,8 @@ export const serve = Effect.fnUntraced(function*<E, R>(
 ) {
   const fetch = yield* HttpRouter.toHttpEffect(routes).pipe(Effect.provide(logs))
 
+  // The Worker's per-request handler: built here once, run by Alchemy on each request, so it is returned unrun.
+  // @effect-diagnostics-next-line returnEffectInGen:off
   return Envelope.respond(fetch).pipe(Effect.provide(logs))
 })
 

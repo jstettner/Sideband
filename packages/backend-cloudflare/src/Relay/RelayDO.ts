@@ -344,10 +344,10 @@ export const RelayDOLive: Layer.Layer<RelayDO, never, Cloudflare.Worker> = Relay
       const get = Effect.fn("Relay.get")(function*(key: Common.IdempotencyKey) {
         yield* liveRunner
 
-        return yield* Option.match(yield* storedState(key), {
-          onNone: () => Effect.fail(new Lifecycle.TurnNotFound({ message: `No turn ${key}.` })),
-          onSome: Effect.succeed
-        })
+        return yield* Effect.fromOption(
+          yield* storedState(key),
+          () => new Lifecycle.TurnNotFound({ message: `No turn ${key}.` })
+        )
       }, handler)
 
       const sessionState = (name: Common.SessionName) =>
