@@ -30,6 +30,7 @@ targets:
         PRODUCT_BUNDLE_IDENTIFIER: $(SIDEBAND_BUNDLE_ID_PREFIX)
         PRODUCT_NAME: Sideband
         GENERATE_INFOPLIST_FILE: YES
+        ASSETCATALOG_COMPILER_APPICON_NAME: AppIcon
     info:
       path: Sideband/Info.plist
       properties:

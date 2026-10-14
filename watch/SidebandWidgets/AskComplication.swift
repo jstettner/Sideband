@@ -1,13 +1,13 @@
 import SwiftUI
 import WidgetKit
 
-/// Watch face complication. Shows the droid and opens the app already recording.
+/// Watch face complication. Shows the barcode and opens the app already recording.
 ///
-/// `Droid` is a template image, so the watch face tints it like any complication.
+/// `Barcode` is a template image, so the watch face tints it like any complication.
 struct AskComplication: Widget {
     var body: some WidgetConfiguration {
         StaticConfiguration(kind: "sideband.face", provider: Provider()) { _ in
-            DroidView()
+            BarcodeView()
                 .widgetURL(AskURL.url)
                 // Required since watchOS 10, or the system shows an error in place of the widget.
                 .containerBackground(for: .widget) { Color.clear }
@@ -37,14 +37,14 @@ private struct Provider: TimelineProvider {
     }
 }
 
-private struct DroidView: View {
+private struct BarcodeView: View {
     @Environment(\.widgetFamily) private var family
     @Environment(\.widgetRenderingMode) private var renderingMode
 
     private static let gold = Color(red: 0.86, green: 0.68, blue: 0.27)
 
     var body: some View {
-        let glyph = Image("Droid")
+        let glyph = Image("Barcode")
             .resizable()
             .scaledToFit()
             .foregroundStyle(renderingMode == .fullColor ? Self.gold : .white)
