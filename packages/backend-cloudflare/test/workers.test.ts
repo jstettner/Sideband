@@ -116,6 +116,10 @@ const closeCode = Effect.fnUntraced(function*(url: string, frames: ReadonlyArray
     })
 
     ws.addEventListener("close", (event) => resume(Effect.succeed(event.code)))
+    // The relay acts on the upgrade before `open` reaches us, so a test can end while the socket is still
+    // connecting. `ws` reports closing it then as an `error`, an uncaught exception without a listener; the
+    // `close` that follows still resumes.
+    ws.addEventListener("error", () => {})
 
     return Effect.sync(() => ws.close())
   })
@@ -202,6 +206,7 @@ test(
   "a session op while a turn runs is session_busy; the turn still completes",
   Effect.gen(function*() {
     const url = yield* workerUrl
+    const started = yield* Latch.make()
     const gate = yield* Latch.make()
 
     const slow = Layer.effect(
@@ -210,6 +215,7 @@ test(
         Agent.Agent.of({
           ...echo,
           runTurn: Effect.fn("Slow.runTurn")(function*(turn) {
+            yield* started.open
             yield* gate.await
 
             return yield* echo.runTurn(turn)
@@ -221,15 +227,18 @@ test(
     const session = freshSession()
     const turn = yield* submit(url, session, freshKey(), "Take your time.").pipe(Effect.forkScoped)
 
-    const busy = yield* HttpClient.post(new URL(`/v1/sessions/${session}/new`, url).toString(), { headers: watch })
-      .pipe(
-        Effect.repeat({
-          schedule: Schedule.spaced("50 millis"),
-          until: (response) => response.status === 409,
-          times: 100
-        })
+    // A turn answered before it runs fails the test with its answer instead of hanging it.
+    yield* Effect.raceFirst(
+      started.await,
+      Fiber.join(turn).pipe(
+        Effect.flatMap((response) =>
+          Effect.flatMap(response.text, (body) => Effect.die(`turn answered before it ran: ${response.status} ${body}`))
+        )
       )
+    )
+    const busy = yield* HttpClient.post(new URL(`/v1/sessions/${session}/new`, url).toString(), { headers: watch })
 
+    expect(busy.status).toBe(409)
     expect(yield* busy.json).toMatchObject({ error: "session_busy", retryable: true })
     yield* gate.open
     const completed = yield* Fiber.join(turn)
